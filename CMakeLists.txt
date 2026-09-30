@@ -12,7 +12,7 @@ endif()
 find_package(Threads REQUIRED)
 enable_testing()
 
-add_library(ctiming STATIC src/glob.c src/buffer.c src/trace.c src/symbols.c src/runtime.c)
+add_library(ctiming STATIC src/glob.c src/buffer.c src/trace.c src/symbols.c src/config.c src/runtime.c)
 target_include_directories(ctiming PUBLIC include PRIVATE src)
 target_link_libraries(ctiming PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
 
@@ -35,3 +35,4 @@ ct_add_test(test_glob tests/test_glob.c)
 ct_add_test(test_buffer tests/test_buffer.c)
 ct_add_test(test_trace tests/test_trace.c)
 ct_add_test(test_symbols tests/test_symbols.c)
+ct_add_test(test_config tests/test_config.c)
