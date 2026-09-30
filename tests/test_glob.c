@@ -21,6 +21,18 @@ int main(void) {
   CHECK_EQ_LONG(ct_filter_match("foo*", "foo_bar*", "foo_bar_x"), 0);
   CHECK_EQ_LONG(ct_filter_match("foo*", "foo_bar*", "foo_qux"), 1);
 
+  CHECK_EQ_LONG(ct_filter_match("foo,bar,", NULL, "bar"), 1);
+  CHECK_EQ_LONG(ct_filter_match(" foo , bar ", NULL, "bar"), 1);
+  CHECK_EQ_LONG(ct_filter_match(" foo , bar ", NULL, "baz"), 0);
+  CHECK_EQ_LONG(ct_filter_match("", NULL, "anything"), 1);
+  CHECK_EQ_LONG(ct_filter_match(NULL, NULL, NULL), 1);
+  CHECK_EQ_LONG(ct_filter_match("foo*", NULL, NULL), 0);
+  CHECK_EQ_LONG(ct_glob_match("a**b", "ab"), 1);
+  CHECK_EQ_LONG(ct_glob_match("a**b", "axxb"), 1);
+  CHECK_EQ_LONG(ct_glob_match("", ""), 1);
+  CHECK_EQ_LONG(ct_glob_match("", "x"), 0);
+  CHECK_EQ_LONG(ct_glob_match(NULL, "x"), 0);
+
   if (fails) fprintf(stderr, "%d checks failed\n", fails);
   return fails ? 1 : 0;
 }

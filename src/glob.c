@@ -26,7 +26,7 @@ static CT_NOINSTR int ct_glob_core(const char *pat, size_t plen, const char *str
   return pi == plen;
 }
 
-CT_NOINSTR int ct_glob_match(const char *pattern, const char *str) {
+CT_NOINSTR CTIMING_HIDDEN int ct_glob_match(const char *pattern, const char *str) {
   if (pattern == NULL || str == NULL) return 0;
   return ct_glob_core(pattern, strlen(pattern), str, strlen(str));
 }
@@ -48,7 +48,7 @@ static CT_NOINSTR int ct_list_match(const char *list, const char *name) {
   return 0;
 }
 
-CT_NOINSTR int ct_filter_match(const char *include, const char *exclude, const char *name) {
+CT_NOINSTR CTIMING_HIDDEN int ct_filter_match(const char *include, const char *exclude, const char *name) {
   if (ct_list_match(exclude, name)) return 0;
   if (include == NULL || *include == '\0') return 1;
   return ct_list_match(include, name) ? 1 : 0;
