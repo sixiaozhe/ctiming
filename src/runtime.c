@@ -15,20 +15,41 @@
 #include <time.h>
 #include <unistd.h>
 
+typedef struct ct_filter_snapshot {
+  char *include;
+  char *exclude;
+  struct ct_filter_snapshot *next;
+} ct_filter_snapshot;
+
+#define CT_FCACHE_SIZE 256
+
 static pthread_once_t g_once = PTHREAD_ONCE_INIT;
 static pthread_key_t g_key;
 static pthread_mutex_t g_retired_mu = PTHREAD_MUTEX_INITIALIZER;
 static ct_buffer *g_retired_head = NULL;
+static ct_filter_snapshot *g_filter_retired = NULL;
 
 static ct_config g_cfg;
 static ct_symbol_table g_syms;
 static char g_progname[512];
+static char g_exe_path[CT_PATH_MAX];
+static uint64_t g_start_ns;
 static _Atomic int g_started = 0;
 static _Atomic int g_enabled = 1;
+static _Atomic unsigned g_max_depth = 0;
+static _Atomic(ct_filter_snapshot *) g_filter = NULL;
+static _Atomic unsigned g_filter_gen = 0;
 
 static __thread ct_buffer *tls_buf = NULL;
 static __thread int tls_in_hook = 0;
 static __thread unsigned tls_depth = 0;
+static __thread uint32_t tls_tid = 0;
+static __thread int tls_tid_set = 0;
+static __thread struct {
+  uintptr_t addr;
+  int decision;
+  unsigned gen;
+} tls_fcache[CT_FCACHE_SIZE];
 
 CT_NOINSTR static uint64_t now_ns(void) {
   struct timespec ts;
@@ -49,6 +70,20 @@ CT_NOINSTR static void retire_thread_buffer(void *p) {
   pthread_mutex_unlock(&g_retired_mu);
 }
 
+CT_NOINSTR static ct_filter_snapshot *make_snapshot(const char *include, const char *exclude) {
+  ct_filter_snapshot *s = (ct_filter_snapshot *)calloc(1, sizeof(*s));
+  if (!s) return NULL;
+  if (include) {
+    s->include = strdup(include);
+    if (!s->include) { free(s); return NULL; }
+  }
+  if (exclude) {
+    s->exclude = strdup(exclude);
+    if (!s->exclude) { free(s->include); free(s); return NULL; }
+  }
+  return s;
+}
+
 CT_NOINSTR static int append_buffer(ct_buffer ***bufs, size_t *n, size_t *cap, ct_buffer *b) {
   if (*n == *cap) {
     size_t nc = *cap ? *cap * 2 : 16;
@@ -61,7 +96,7 @@ CT_NOINSTR static int append_buffer(ct_buffer ***bufs, size_t *n, size_t *cap, c
   return 0;
 }
 
-CT_NOINSTR static void dump_locked(void) {
+CT_NOINSTR static int dump_locked(void) {
   ct_buffer **bufs = NULL;
   size_t n = 0, cap = 0;
 
@@ -103,22 +138,35 @@ CT_NOINSTR static void dump_locked(void) {
   ct_trace_meta meta;
   memset(&meta, 0, sizeof(meta));
   meta.pid = (uint32_t)getpid();
-  meta.start_ns = now_ns();
+  meta.start_ns = g_start_ns;
   meta.flags = 0;
-  snprintf(meta.exe, CT_PATH_MAX, "%s", nmods > 0 ? mods[0].path : "");
+  snprintf(meta.exe, CT_PATH_MAX, "%s", g_exe_path);
 
-  ct_trace_write(g_cfg.out_path, (const ct_buffer *const *)bufs, n,
-                 mods, nmods, syms, nsyms, &meta);
+  int rc = ct_trace_write(g_cfg.out_path, (const ct_buffer *const *)bufs, n,
+                          mods, nmods, syms, nsyms, &meta);
 
   free(syms);
   free(mods);
   free(bufs);
+  return rc;
 }
 
 CT_NOINSTR static void ct_atexit(void) {
   pthread_mutex_lock(&g_retired_mu);
   dump_locked();
+
+  ct_filter_snapshot *s = g_filter_retired;
+  while (s) {
+    ct_filter_snapshot *nx = s->next;
+    free(s->include);
+    free(s->exclude);
+    free(s);
+    s = nx;
+  }
+  g_filter_retired = NULL;
   pthread_mutex_unlock(&g_retired_mu);
+
+  ct_config_clear(&g_cfg);
 }
 
 CT_NOINSTR static void init_once(void) {
@@ -126,15 +174,20 @@ CT_NOINSTR static void init_once(void) {
   ssize_t k = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
   if (k > 0) {
     exe[k] = '\0';
+    snprintf(g_exe_path, sizeof(g_exe_path), "%s", exe);
     const char *slash = strrchr(exe, '/');
     snprintf(g_progname, sizeof(g_progname), "%s", slash ? slash + 1 : exe);
   } else {
+    g_exe_path[0] = '\0';
     snprintf(g_progname, sizeof(g_progname), "ctiming");
   }
+  g_start_ns = now_ns();
 
   ct_config_load(&g_cfg, g_progname);
   ct_symbols_load(&g_syms);
   atomic_store(&g_enabled, g_cfg.enabled);
+  atomic_store(&g_max_depth, g_cfg.max_depth);
+  atomic_store(&g_filter, make_snapshot(g_cfg.include, g_cfg.exclude));
 
   pthread_key_create(&g_key, retire_thread_buffer);
   atexit(ct_atexit);
@@ -146,32 +199,49 @@ CT_NOINSTR static ct_buffer *current_buffer(void) {
     tls_buf = ct_buffer_new(8192);
     if (tls_buf) pthread_setspecific(g_key, tls_buf);
   }
+  if (!tls_tid_set) {
+    tls_tid = current_tid();
+    tls_tid_set = 1;
+  }
   return tls_buf;
 }
 
 CT_NOINSTR static int pass_filter(uintptr_t fn) {
-  if (!g_cfg.include && !g_cfg.exclude) return 1;
+  unsigned gen = atomic_load(&g_filter_gen);
+  ct_filter_snapshot *s = atomic_load(&g_filter);
+  if (!s || (!s->include && !s->exclude)) return 1;
+
+  unsigned idx = (unsigned)((fn >> 4) & (CT_FCACHE_SIZE - 1));
+  if (tls_fcache[idx].gen == gen && tls_fcache[idx].addr == fn)
+    return tls_fcache[idx].decision;
+
   const char *name = ct_symbols_lookup(&g_syms, fn, NULL, NULL);
-  if (!name) return g_cfg.include ? 0 : 1;
-  return ct_filter_match(g_cfg.include, g_cfg.exclude, name);
+  int decision;
+  if (!name) decision = s->include ? 0 : 1;
+  else decision = ct_filter_match(s->include, s->exclude, name);
+
+  tls_fcache[idx].addr = fn;
+  tls_fcache[idx].decision = decision;
+  tls_fcache[idx].gen = gen;
+  return decision;
 }
 
 CT_NOINSTR static void record(uintptr_t fn, uintptr_t cs, ct_event_kind kind, unsigned depth) {
-  if (!atomic_load(&g_enabled)) return;
   if (tls_in_hook) return;
   tls_in_hook = 1;
 
-  pthread_once(&g_once, init_once);
-  if (!atomic_load(&g_started)) {
+  if (!atomic_load(&g_started)) pthread_once(&g_once, init_once);
+  if (!atomic_load(&g_started) || !atomic_load(&g_enabled)) {
     tls_in_hook = 0;
     return;
   }
 
-  if ((g_cfg.max_depth == 0 || depth < g_cfg.max_depth) && pass_filter(fn)) {
+  unsigned maxd = atomic_load(&g_max_depth);
+  if ((maxd == 0 || depth < maxd) && pass_filter(fn)) {
     ct_buffer *b = current_buffer();
     if (b) {
       ct_event e;
-      e.tid = current_tid();
+      e.tid = tls_tid;
       e.kind = (uint8_t)kind;
       e.ts = now_ns();
       e.fn = fn;
@@ -207,21 +277,26 @@ CT_NOINSTR CTIMING_HIDDEN int ctiming_dump(const char *path) {
   char prev[CT_PATH_MAX];
   snprintf(prev, CT_PATH_MAX, "%s", g_cfg.out_path);
   if (path) snprintf(g_cfg.out_path, CT_PATH_MAX, "%s", path);
-  dump_locked();
+  int rc = dump_locked();
   snprintf(g_cfg.out_path, CT_PATH_MAX, "%s", prev);
   pthread_mutex_unlock(&g_retired_mu);
-  return 0;
+  return rc;
 }
 
 CT_NOINSTR CTIMING_HIDDEN void ctiming_set_filter(const char *include, const char *exclude) {
   pthread_once(&g_once, init_once);
-  free(g_cfg.include);
-  free(g_cfg.exclude);
-  g_cfg.include = include ? strdup(include) : NULL;
-  g_cfg.exclude = exclude ? strdup(exclude) : NULL;
+  ct_filter_snapshot *s = make_snapshot(include, exclude);
+  ct_filter_snapshot *old = atomic_exchange(&g_filter, s);
+  atomic_fetch_add(&g_filter_gen, 1);
+  if (old) {
+    pthread_mutex_lock(&g_retired_mu);
+    old->next = g_filter_retired;
+    g_filter_retired = old;
+    pthread_mutex_unlock(&g_retired_mu);
+  }
 }
 
 CT_NOINSTR CTIMING_HIDDEN void ctiming_set_max_depth(unsigned depth) {
   pthread_once(&g_once, init_once);
-  g_cfg.max_depth = depth;
+  atomic_store(&g_max_depth, depth);
 }
