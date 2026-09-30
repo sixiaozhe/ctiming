@@ -19,12 +19,33 @@ CT_NOINSTR static void put_varint(FILE *f, uint64_t v) {
   put_u8(f, (uint8_t)v);
 }
 
-CT_NOINSTR static long find_symbol_addr(uint64_t addr,
-                                        const ct_trace_module *mods, size_t nmods,
-                                        const ct_trace_symbol *syms, size_t nsyms) {
-  for (size_t i = 0; i < nsyms; i++) {
-    if (syms[i].module == CT_UNKNOWN_MODULE || syms[i].module >= nmods) continue;
-    if (mods[syms[i].module].base + syms[i].offset == addr) return (long)i;
+typedef struct {
+  uint64_t addr;
+  uint32_t id;
+} ct_addr_id;
+
+CT_NOINSTR static int cmp_addr_id(const void *a, const void *b) {
+  const ct_addr_id *x = (const ct_addr_id *)a;
+  const ct_addr_id *y = (const ct_addr_id *)b;
+  if (x->addr < y->addr) return -1;
+  if (x->addr > y->addr) return 1;
+  return 0;
+}
+
+CT_NOINSTR static long lookup_addr(const ct_addr_id *index, size_t n, uint64_t addr) {
+  size_t lo = 0, hi = n;
+  while (lo < hi) {
+    size_t mid = lo + (hi - lo) / 2;
+    if (index[mid].addr == addr) return (long)index[mid].id;
+    if (index[mid].addr < addr) lo = mid + 1;
+    else hi = mid;
+  }
+  return -1;
+}
+
+CT_NOINSTR static long lookup_extra(const ct_trace_symbol *extra, size_t nextra, uint64_t fn) {
+  for (size_t i = 0; i < nextra; i++) {
+    if (extra[i].offset == fn) return (long)i;
   }
   return -1;
 }
@@ -41,6 +62,20 @@ CT_NOINSTR CTIMING_HIDDEN int ct_trace_write(const char *path,
 
   FILE *f = fopen(path, "wb");
   if (f == NULL) return -1;
+
+  ct_addr_id *index = NULL;
+  size_t nindex = 0;
+  if (nsyms) {
+    index = (ct_addr_id *)malloc(nsyms * sizeof(ct_addr_id));
+    if (index == NULL) { fclose(f); return -1; }
+    for (size_t i = 0; i < nsyms; i++) {
+      if (syms[i].module == CT_UNKNOWN_MODULE || syms[i].module >= nmods) continue;
+      index[nindex].addr = mods[syms[i].module].base + syms[i].offset;
+      index[nindex].id = (uint32_t)i;
+      nindex++;
+    }
+    qsort(index, nindex, sizeof(index[0]), cmp_addr_id);
+  }
 
   ct_trace_symbol *extra = NULL;
   size_t nextra = 0, capextra = 0;
@@ -72,20 +107,25 @@ CT_NOINSTR CTIMING_HIDDEN int ct_trace_write(const char *path,
     uint64_t prev_ts = 0;
     for (size_t i = 0; b != NULL && i < b->count; i++) {
       const ct_event *e = &b->data[i];
-      long id = find_symbol_addr((uint64_t)e->fn, mods, nmods, syms, nsyms);
+      long id = lookup_addr(index, nindex, (uint64_t)e->fn);
       if (id < 0) {
-        id = (long)(nsyms + nextra);
-        if (nextra == capextra) {
-          size_t nc = capextra ? capextra * 2 : 8;
-          ct_trace_symbol *ne = (ct_trace_symbol *)realloc(extra, nc * sizeof(*ne));
-          if (ne == NULL) { failed = 1; break; }
-          extra = ne;
-          capextra = nc;
+        long ei = lookup_extra(extra, nextra, (uint64_t)e->fn);
+        if (ei >= 0) {
+          id = (long)(nsyms + (size_t)ei);
+        } else {
+          id = (long)(nsyms + nextra);
+          if (nextra == capextra) {
+            size_t nc = capextra ? capextra * 2 : 8;
+            ct_trace_symbol *ne = (ct_trace_symbol *)realloc(extra, nc * sizeof(*ne));
+            if (ne == NULL) { failed = 1; break; }
+            extra = ne;
+            capextra = nc;
+          }
+          memset(&extra[nextra], 0, sizeof(extra[nextra]));
+          extra[nextra].module = CT_UNKNOWN_MODULE;
+          extra[nextra].offset = (uint64_t)e->fn;
+          nextra++;
         }
-        memset(&extra[nextra], 0, sizeof(extra[nextra]));
-        extra[nextra].module = CT_UNKNOWN_MODULE;
-        extra[nextra].offset = (uint64_t)e->fn;
-        nextra++;
       }
       put_varint(f, (uint64_t)id);
       put_varint(f, i == 0 ? e->ts : e->ts - prev_ts);
@@ -109,6 +149,7 @@ CT_NOINSTR CTIMING_HIDDEN int ct_trace_write(const char *path,
     fwrite(CT_MAGIC_END, 1, 4, f);
   }
 
+  free(index);
   free(extra);
   if (failed || ferror(f)) { fclose(f); return -1; }
   if (fflush(f) != 0) { fclose(f); return -1; }
@@ -192,6 +233,7 @@ CT_NOINSTR CTIMING_HIDDEN int ct_trace_open(const char *path, ct_trace_reader *r
     uint32_t m;
     if (get_u32(f, &m) || get_u64(f, &r->symbols[i].offset) ||
         get_str(f, r->symbols[i].name, sizeof(r->symbols[i].name))) goto done;
+    if (m != CT_UNKNOWN_MODULE && m >= r->n_modules) goto done;
     r->symbols[i].module = m;
   }
 
@@ -228,6 +270,7 @@ CT_NOINSTR CTIMING_HIDDEN int ct_trace_open(const char *path, ct_trace_reader *r
   if (get_u32(f, &nextra)) goto done;
   if (nextra) {
     uint64_t merged = (uint64_t)r->n_symbols + nextra;
+    if (merged > (uint64_t)UINT32_MAX) goto done;
     if (merged > (uint64_t)(SIZE_MAX / sizeof(ct_trace_symbol))) goto done;
     ct_trace_symbol *ns = (ct_trace_symbol *)realloc(r->symbols, (size_t)merged * sizeof(ct_trace_symbol));
     if (ns == NULL) goto done;
@@ -236,9 +279,16 @@ CT_NOINSTR CTIMING_HIDDEN int ct_trace_open(const char *path, ct_trace_reader *r
       ct_trace_symbol *dst = &r->symbols[r->n_symbols];
       uint32_t m; uint64_t off;
       if (get_u32(f, &m) || get_u64(f, &off) || get_str(f, dst->name, sizeof(dst->name))) goto done;
+      if (m != CT_UNKNOWN_MODULE && m >= r->n_modules) goto done;
       dst->module = m;
       dst->offset = off;
       r->n_symbols++;
+    }
+  }
+
+  for (uint32_t ti = 0; ti < r->n_threads; ti++) {
+    for (uint32_t i = 0; i < r->threads[ti].n_events; i++) {
+      if (r->threads[ti].events[i].fn_id >= r->n_symbols) goto done;
     }
   }
 
