@@ -22,11 +22,12 @@ target_link_libraries(ctiming-info PRIVATE ctiming)
 
 function(ct_add_test name file)
   add_executable(${name} ${file})
-  target_include_directories(${name} PRIVATE include src tests)
+  target_include_directories(${name} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests)
   target_link_libraries(${name} PRIVATE ctiming)
   add_test(NAME ${name} COMMAND ${name})
 endfunction()
 
-if(EXISTS ${CMAKE_SOURCE_DIR}/tools/ctiming-info.c)
-  ct_add_test(test_smoke tests/test_smoke.c)
-endif()
+ct_add_test(test_smoke tests/test_smoke.c)
