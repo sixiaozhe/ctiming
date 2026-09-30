@@ -1,0 +1,6 @@
+build/
+.superpowers/
+*.ctrace
+*.ctrace.gz
+report.html
+compile_commands.json
