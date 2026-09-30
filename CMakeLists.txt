@@ -12,7 +12,7 @@ endif()
 find_package(Threads REQUIRED)
 enable_testing()
 
-add_library(ctiming STATIC src/runtime.c)
+add_library(ctiming STATIC src/glob.c src/runtime.c)
 target_include_directories(ctiming PUBLIC include PRIVATE src)
 target_link_libraries(ctiming PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
 
@@ -31,3 +31,4 @@ function(ct_add_test name file)
 endfunction()
 
 ct_add_test(test_smoke tests/test_smoke.c)
+ct_add_test(test_glob tests/test_glob.c)
