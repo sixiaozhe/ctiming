@@ -13,22 +13,38 @@ extern char *__cxa_demangle(const char *mangled, char *buf, size_t *len, int *st
     __attribute__((weak));
 
 CT_NOINSTR static int add_module(ct_symbol_table *t, uint64_t base, const char *path) {
-  ct_trace_module *nm = (ct_trace_module *)realloc(t->modules, (t->n_modules + 1) * sizeof(ct_trace_module));
-  if (!nm) return -1;
-  t->modules = nm;
-  t->modules[t->n_modules].base = base;
-  snprintf(t->modules[t->n_modules].path, CT_PATH_MAX, "%s", path);
+  if (t->n_modules == t->modules_cap) {
+    size_t nc = t->modules_cap ? t->modules_cap * 2 : 16;
+    if (nc < t->modules_cap) return -1;
+    ct_trace_module *nm = (ct_trace_module *)realloc(t->modules, nc * sizeof(ct_trace_module));
+    if (!nm) return -1;
+    t->modules = nm;
+    uint64_t *nh = (uint64_t *)realloc(t->module_hi, nc * sizeof(uint64_t));
+    if (!nh) return -1;
+    t->module_hi = nh;
+    t->modules_cap = nc;
+  }
+  uint32_t idx = (uint32_t)t->n_modules;
+  t->modules[idx].base = base;
+  snprintf(t->modules[idx].path, CT_PATH_MAX, "%s", path);
+  t->module_hi[idx] = 0;
   t->n_modules++;
-  return (int)(t->n_modules - 1);
+  return (int)idx;
 }
 
 CT_NOINSTR static void add_symbol(ct_symbol_table *t, uint64_t addr, const char *name, uint32_t module) {
-  ct_sym_entry *ns = (ct_sym_entry *)realloc(t->syms, (t->n_symbols + 1) * sizeof(ct_sym_entry));
-  if (!ns) return;
-  t->syms = ns;
-  t->syms[t->n_symbols].addr = addr;
-  t->syms[t->n_symbols].module = module;
-  snprintf(t->syms[t->n_symbols].name, sizeof(t->syms[t->n_symbols].name), "%s", name);
+  if (t->n_symbols == t->syms_cap) {
+    size_t nc = t->syms_cap ? t->syms_cap * 2 : 256;
+    if (nc < t->syms_cap) return;
+    ct_sym_entry *ns = (ct_sym_entry *)realloc(t->syms, nc * sizeof(ct_sym_entry));
+    if (!ns) return;
+    t->syms = ns;
+    t->syms_cap = nc;
+  }
+  ct_sym_entry *e = &t->syms[t->n_symbols];
+  e->addr = addr;
+  e->module = module;
+  snprintf(e->name, sizeof(e->name), "%s", name);
   t->n_symbols++;
 }
 
@@ -126,16 +142,17 @@ CT_NOINSTR CTIMING_HIDDEN int ct_symbols_load(ct_symbol_table *t) {
     memcpy(file, path, plen);
     file[plen] = '\0';
 
-    int dup = 0;
+    int mi = -1;
     for (size_t i = 0; i < t->n_modules; i++) {
-      if (strcmp(t->modules[i].path, file) == 0) { dup = 1; break; }
+      if (strcmp(t->modules[i].path, file) == 0) { mi = (int)i; break; }
     }
-    if (dup) continue;
-
-    uint64_t base = (uint64_t)start - (uint64_t)off;
-    int mi = add_module(t, base, file);
-    if (mi < 0) break;
-    load_elf_symbols(t, base, file, (uint32_t)mi);
+    if (mi < 0) {
+      uint64_t base = (uint64_t)start - (uint64_t)off;
+      mi = add_module(t, base, file);
+      if (mi < 0) break;
+      load_elf_symbols(t, base, file, (uint32_t)mi);
+    }
+    if ((uint64_t)end > t->module_hi[mi]) t->module_hi[mi] = (uint64_t)end;
   }
 
   fclose(f);
@@ -146,6 +163,7 @@ CT_NOINSTR CTIMING_HIDDEN int ct_symbols_load(ct_symbol_table *t) {
 CT_NOINSTR CTIMING_HIDDEN void ct_symbols_free(ct_symbol_table *t) {
   if (t == NULL) return;
   free(t->modules);
+  free(t->module_hi);
   free(t->syms);
   memset(t, 0, sizeof(*t));
 }
@@ -161,7 +179,10 @@ CT_NOINSTR CTIMING_HIDDEN const char *ct_symbols_lookup(const ct_symbol_table *t
   }
   if (lo == 0) return NULL;
   size_t i = lo - 1;
+  uint32_t m = t->syms[i].module;
+  if (m != 0xFFFFFFFFu && m < t->n_modules && t->module_hi &&
+      (uint64_t)addr >= t->module_hi[m]) return NULL;
   if (offset) *offset = addr - (uintptr_t)t->syms[i].addr;
-  if (module) *module = t->syms[i].module;
+  if (module) *module = m;
   return t->syms[i].name;
 }

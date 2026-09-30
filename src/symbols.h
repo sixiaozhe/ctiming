@@ -15,8 +15,11 @@ typedef struct {
 typedef struct {
   ct_trace_module *modules;
   size_t n_modules;
+  size_t modules_cap;
+  uint64_t *module_hi;
   ct_sym_entry *syms;
   size_t n_symbols;
+  size_t syms_cap;
 } ct_symbol_table;
 
 CTIMING_HIDDEN int ct_symbols_load(ct_symbol_table *t);
