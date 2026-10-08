@@ -41,18 +41,17 @@
     const base = inst.start_ns;
     const span = Math.max(1, inst.end_ns - inst.start_ns);
     host.appendChild(CT.el("p", { class: "muted", text: CT.name(inst.fn) + " · 时长 " + CT.fmtNs(span) + " · tid " + inst.tid + " · 直接子调用 " + inst.children.length }));
-    const track = 720;
     for (const f of frames) {
-      const left = ((f.n.start_ns - base) / span) * track;
-      const width = Math.max(1, ((f.n.end_ns - f.n.start_ns) / span) * track);
+      const left = ((f.n.start_ns - base) / span) * 100;
+      const width = ((f.n.end_ns - f.n.start_ns) / span) * 100;
       const row = CT.el("div", { class: "row" });
       const lbl = CT.el("div", { class: "lbl", title: CT.name(f.n.fn) });
       for (let d = 0; d < f.depth; d++) lbl.appendChild(document.createTextNode("  "));
       lbl.appendChild(document.createTextNode(CT.name(f.n.fn)));
-      const tr = CT.el("div", { class: "track", style: "width:" + track + "px" });
+      const tr = CT.el("div", { class: "track" });
       const fill = CT.el("div", { class: "fill" });
-      fill.style.left = left + "px";
-      fill.style.width = width + "px";
+      fill.style.left = left + "%";
+      fill.style.width = width + "%";
       fill.style.background = f.depth === 0 ? "var(--hot)" : f.depth === 1 ? "var(--warm)" : f.depth === 2 ? "var(--cool)" : "var(--cold)";
       fill.title = CT.name(f.n.fn) + " · " + CT.fmtNs(f.n.end_ns - f.n.start_ns) + " · 自身 " + CT.fmtNs(f.n.self_ns);
       tr.appendChild(fill);
@@ -80,6 +79,7 @@
     function refresh() {
       const q = search.value.trim().toLowerCase();
       const items = q ? all.filter(function (i) { return CT.name(i.fn).toLowerCase().indexOf(q) >= 0; }) : all;
+      if (selected && items.indexOf(selected) < 0) selected = items.length ? items[0] : null;
       renderList(list, items, pick);
       CT.clear(right);
       if (selected) renderWaterfall(right, selected);

@@ -44,7 +44,7 @@
       c.setAttribute("r", "6");
       c.setAttribute("fill", f.kept ? "var(--accent)" : "var(--muted)");
       c.style.cursor = "pointer";
-      c.addEventListener("click", function () { CT.openCallers(f.id); });
+      c.addEventListener("click", function () { CT.hideTooltip(); CT.openCallers(f.id); });
       c.addEventListener("mousemove", function (ev) { CT.tooltip(CT.name(f.id) + " · 总 " + CT.fmtNs(f.total_ns), ev.clientX, ev.clientY); });
       c.addEventListener("mouseleave", CT.hideTooltip);
       svg.appendChild(c);

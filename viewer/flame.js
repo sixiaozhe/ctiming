@@ -7,7 +7,7 @@
   function rootsArr() { return rootNode ? [rootNode] : CT.data.aggregated; }
 
   function pathTo(target) {
-    const starts = rootNode ? [rootNode] : CT.data.aggregated;
+    const starts = CT.data.aggregated;
     const stack = starts.map(function (r) { return { node: r, p: [r] }; });
     while (stack.length) {
       const cur = stack.pop();
@@ -92,6 +92,7 @@
       rect.addEventListener("mousemove", function (e) { CT.tooltip(tip, e.clientX, e.clientY); });
       rect.addEventListener("mouseleave", CT.hideTooltip);
       rect.addEventListener("click", function () {
+        CT.hideTooltip();
         if (f.node.children && f.node.children.length) { path = pathTo(f.node); rootNode = f.node; render(root); }
         else CT.openCallers(f.node.fn);
       });
