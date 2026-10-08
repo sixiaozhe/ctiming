@@ -1,4 +1,5 @@
 #include "json.hpp"
+#include <cmath>
 #include <cstdio>
 
 namespace ct {
@@ -40,7 +41,7 @@ void JsonWriter::begin_object() {
 
 void JsonWriter::end_object() {
   out_ += '}';
-  first_.pop_back();
+  if (!first_.empty()) first_.pop_back();
 }
 
 void JsonWriter::begin_array() {
@@ -51,7 +52,7 @@ void JsonWriter::begin_array() {
 
 void JsonWriter::end_array() {
   out_ += ']';
-  first_.pop_back();
+  if (!first_.empty()) first_.pop_back();
 }
 
 void JsonWriter::key(const std::string &k) {
@@ -59,29 +60,17 @@ void JsonWriter::key(const std::string &k) {
   out_ += '"';
   out_ += json_escape(k);
   out_ += "\":";
-  first_.back() = true;
-}
-
-void JsonWriter::number(int v) { number(static_cast<int64_t>(v)); }
-
-void JsonWriter::number(int64_t v) {
-  comma();
-  char buf[32];
-  std::snprintf(buf, sizeof buf, "%lld", static_cast<long long>(v));
-  out_ += buf;
-}
-
-void JsonWriter::number(uint64_t v) {
-  comma();
-  char buf[32];
-  std::snprintf(buf, sizeof buf, "%llu", static_cast<unsigned long long>(v));
-  out_ += buf;
+  if (!first_.empty()) first_.back() = true;
 }
 
 void JsonWriter::number(double v) {
   comma();
-  char buf[32];
-  std::snprintf(buf, sizeof buf, "%g", v);
+  if (!std::isfinite(v)) {
+    out_ += "null";
+    return;
+  }
+  char buf[40];
+  std::snprintf(buf, sizeof buf, "%.17g", v);
   out_ += buf;
 }
 

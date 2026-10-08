@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace ct {
@@ -14,9 +15,14 @@ public:
   void begin_array();
   void end_array();
   void key(const std::string &k);
-  void number(int v);
-  void number(int64_t v);
-  void number(uint64_t v);
+  template <class T,
+            typename std::enable_if<std::is_integral<T>::value &&
+                                        !std::is_same<T, bool>::value,
+                                    int>::type = 0>
+  void number(T v) {
+    comma();
+    out_ += std::to_string(v);
+  }
   void number(double v);
   void boolean(bool b);
   void str(const std::string &s);
