@@ -59,11 +59,11 @@ CTIMING_INCLUDE='main,mid*' CTIMING_EXCLUDE='mid_internal' ./app
 | `void ctiming_set_max_depth(unsigned depth)` | `depth`：最大深度，`0` = 不限 | 无 | 运行期更新最大调用深度 |
 | `const char *ctiming_version(void)` | 无 | 指向版本字符串的常量指针 | 返回如 `"0.1.0"` |
 
-调用任意 API 都会惰性初始化运行时；若程序未提前调用，首次进入插桩钩子时也会自动初始化。进程退出时由 `atexit` 自动导出一次。
+除 `ctiming_version`、`ctiming_stop` 外，调用公共 API 会触发一次惰性初始化（内部 `pthread_once`）；`ctiming_version` 仅返回常量字符串、`ctiming_stop` 仅翻转开关，都不做初始化。同样地，若程序未提前调用，首次进入插桩钩子时也会自动初始化。进程退出时由 `atexit` 自动导出一次。
 
 ## `.ctrace` 文件格式
 
-分段式二进制文件，**全部小端**，指针宽度跟随采集机（当前为 64 位）。字符串编码为 `u32 长度 + 原始字节`（不含结尾 `\0`）。整数 `u8/u16/u32/u64` 为定长小端；`varint` 为无符号 LEB128 变长编码（每字节低 7 位有效，最高位为续位）。
+分段式二进制文件，**全部小端**。地址类字段（`base`、`offset`、`call_site`）一律写成定长 `u64`；Header 中虽记录 `ptr_size`，但当前实现仅支持 64 位，读回时并不使用该字段。字符串编码为 `u32 长度 + 原始字节`（不含结尾 `\0`）。整数 `u8/u16/u32/u64` 为定长小端；`varint` 为无符号 LEB128 变长编码（每字节低 7 位有效，最高位为续位）。
 
 写出顺序如下：
 
