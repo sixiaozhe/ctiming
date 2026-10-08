@@ -52,6 +52,31 @@ function(ct_add_analysis_test name file)
   add_test(NAME ${name} COMMAND ${name})
 endfunction()
 
+set(CT_VIEWER_ASSETS
+  viewer/viewer.css
+  viewer/core.js
+  viewer/overview.js
+  viewer/flame.js
+  viewer/graph.js
+  viewer/trace.js
+  viewer/callers.js
+  viewer/main.js)
+
+add_custom_command(
+  OUTPUT ${CMAKE_BINARY_DIR}/viewer_assets.hpp
+  COMMAND ${CMAKE_COMMAND}
+          -DOUT=${CMAKE_BINARY_DIR}/viewer_assets.hpp
+          "-DFILES=${CT_VIEWER_ASSETS}"
+          -P ${CMAKE_SOURCE_DIR}/cmake/embed_assets.cmake
+  DEPENDS ${CT_VIEWER_ASSETS} ${CMAKE_SOURCE_DIR}/cmake/embed_assets.cmake
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  VERBATIM)
+add_custom_target(ct_viewer_assets DEPENDS ${CMAKE_BINARY_DIR}/viewer_assets.hpp)
+
+target_sources(ctiming_analysis PRIVATE src/analyze/html.cpp)
+target_include_directories(ctiming_analysis PRIVATE ${CMAKE_BINARY_DIR})
+add_dependencies(ctiming_analysis ct_viewer_assets)
+
 ct_add_test(test_smoke tests/test_smoke.c)
 ct_add_test(test_glob tests/test_glob.c)
 ct_add_test(test_buffer tests/test_buffer.c)
@@ -64,6 +89,7 @@ ct_add_analysis_test(test_calltree tests/test_calltree.cpp)
 ct_add_analysis_test(test_aggregate tests/test_aggregate.cpp)
 ct_add_analysis_test(test_json tests/test_json.cpp)
 ct_add_analysis_test(test_analysis tests/test_analysis.cpp)
+ct_add_analysis_test(test_html tests/test_html.cpp)
 
 add_executable(example_single examples/example_single.c)
 target_compile_options(example_single PRIVATE -finstrument-functions -g -O0)
