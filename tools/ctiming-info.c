@@ -1,7 +1,6 @@
 #include "trace.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 typedef struct {
   unsigned calls;
@@ -9,14 +8,10 @@ typedef struct {
 } fn_count;
 
 static void print_symbol(const ct_trace_reader *r, uint32_t fn_id) {
-  if (fn_id < r->n_symbols) {
-    const ct_trace_symbol *s = &r->symbols[fn_id];
-    if (s->module == 0xFFFFFFFFu) printf("0x%llx", (unsigned long long)s->offset);
-    else if (s->name[0]) printf("%s", s->name);
-    else printf("0x%llx", (unsigned long long)s->offset);
-  } else {
-    printf("fn#%u", fn_id);
-  }
+  const ct_trace_symbol *s = &r->symbols[fn_id];
+  if (s->module == CT_UNKNOWN_MODULE) printf("0x%llx", (unsigned long long)s->offset);
+  else if (s->name[0]) printf("%s", s->name);
+  else printf("0x%llx", (unsigned long long)s->offset);
 }
 
 static int cmp_fn_count(const void *a, const void *b) {

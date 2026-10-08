@@ -7,6 +7,7 @@
 #include <stddef.h>
 
 #define CT_PATH_MAX 512
+#define CT_UNKNOWN_MODULE 0xFFFFFFFFu
 
 typedef struct {
   uint32_t pid;

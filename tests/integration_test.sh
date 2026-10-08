@@ -10,6 +10,6 @@ test -s "$WORK/out.ctrace"
 OUT="$("$INFO" "$WORK/out.ctrace")"
 echo "$OUT"
 echo "$OUT" | grep -q "total_events"
-echo "$OUT" | grep -q "leaf"
-echo "$OUT" | grep -q "mid"
-echo "$OUT" | grep -q "main"
+echo "$OUT" | grep -qE '^[[:space:]]*6[[:space:]]+leaf$'
+echo "$OUT" | grep -qE '^[[:space:]]*2[[:space:]]+mid$'
+echo "$OUT" | grep -qE '^[[:space:]]*1[[:space:]]+main$'

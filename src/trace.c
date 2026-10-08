@@ -7,7 +7,6 @@
 #define CT_MAGIC "CTMG"
 #define CT_MAGIC_END "CTME"
 #define CT_VERSION 1
-#define CT_UNKNOWN_MODULE 0xFFFFFFFFu
 
 CT_NOINSTR static void put_u8(FILE *f, uint8_t v) { fputc(v, f); }
 CT_NOINSTR static void put_u16(FILE *f, uint16_t v) { uint8_t b[2] = { (uint8_t)v, (uint8_t)(v >> 8) }; fwrite(b, 1, 2, f); }
