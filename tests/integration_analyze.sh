@@ -23,9 +23,18 @@ if "$ANALYZE" "$WORK/nonexistent.ctrace" >/dev/null 2>&1; then echo "expected op
 if "$ANALYZE" "$WORK/out.ctrace" --min-total abc >/dev/null 2>&1; then echo "expected parse error"; exit 1; fi
 if "$ANALYZE" "$WORK/out.ctrace" --min-total -5 >/dev/null 2>&1; then echo "expected negative error"; exit 1; fi
 FILTERED="$("$ANALYZE" "$WORK/out.ctrace" --include 'leaf*')"
-FTABLE="$(echo "$FILTERED" | grep -E '^  [0-9]')"
+FTABLE="$(echo "$FILTERED" | grep -E '^  [0-9]' || true)"
 echo "$FTABLE" | grep -q "leaf"
-if echo "$FTABLE" | grep -q "mid"; then echo "include filter failed"; exit 1; fi
+if echo "$FTABLE" | grep -q "main"; then echo "include filter kept main"; exit 1; fi
+if echo "$FTABLE" | grep -q "mid"; then echo "include filter kept mid"; exit 1; fi
 EXCLUDED="$("$ANALYZE" "$WORK/out.ctrace" --exclude 'leaf*')"
-XTABLE="$(echo "$EXCLUDED" | grep -E '^  [0-9]')"
-if echo "$XTABLE" | grep -q "leaf"; then echo "exclude filter failed"; exit 1; fi
+XTABLE="$(echo "$EXCLUDED" | grep -E '^  [0-9]' || true)"
+test -n "$XTABLE"
+echo "$XTABLE" | grep -q "mid"
+echo "$XTABLE" | grep -q "main"
+if echo "$XTABLE" | grep -q "leaf"; then echo "exclude filter kept leaf"; exit 1; fi
+MINT="$("$ANALYZE" "$WORK/out.ctrace" --min-total 1 | grep -E '^  [0-9]' || true)"
+test -n "$MINT"
+echo "$MINT" | grep -q "leaf"
+LARGE="$("$ANALYZE" "$WORK/out.ctrace" --min-total 100000000 | grep -E '^  [0-9]' || true)"
+test -z "$LARGE"

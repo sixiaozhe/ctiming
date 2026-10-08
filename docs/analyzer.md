@@ -12,12 +12,12 @@ ctiming-analyze <trace.ctrace> [--json FILE] [--include GLOB] [--exclude GLOB] [
 |------|------|------|------|
 | `<trace.ctrace>` | 路径，必填 | 无 | 待分析的 `.ctrace` 文件 |
 | `--json FILE` | 文件路径 | 未设置 | 写出全量自洽的 `analysis.json`；设置后**不再**打印文本摘要，仅打印一行 `wrote FILE` |
-| `--include GLOB` | glob 字符串，如 `leaf*` | 未设置 | 文本摘要只保留函数名命中该 glob 的函数 |
-| `--exclude GLOB` | glob 字符串 | 未设置 | 文本摘要丢弃命中该 glob 的函数，优先级高于 `--include` |
+| `--include GLOB` | 逗号分隔的 glob 列表，如 `leaf*,mid*` | 未设置 | 文本摘要只保留函数名命中列表中任一项的函数 |
+| `--exclude GLOB` | 逗号分隔的 glob 列表 | 未设置 | 文本摘要丢弃命中列表中任一项的函数，优先级高于 `--include` |
 | `--min-total NS` | 非负整数（纳秒） | `0` | 文本摘要丢弃 `total_ns` 小于该值的函数；`0` 表示不过滤 |
 | `--top N` | 非负整数 | `0` | 文本摘要按 `total_ns` 降序只显示前 `N` 行；`0` 表示不限 |
 
-一次只接受一个 trace 路径，多余的普通参数会报错。glob 语法支持 `*`（任意长度，含空）与 `?`（单字符），大小写敏感，与运行时 `CTIMING_INCLUDE`/`CTIMING_EXCLUDE` 使用同一套匹配逻辑。
+一次只接受一个 trace 路径，多余的普通参数会报错。`--include`/`--exclude` 接受**逗号分隔的 glob 列表**，命中列表中任一项即算命中；每项两侧的空白（空格/制表符）会被裁剪，空项不匹配任何名字。glob 支持 `*`（任意长度，含空）与 `?`（单字符），大小写敏感。该匹配与运行时 `CTIMING_INCLUDE`/`CTIMING_EXCLUDE` 使用同一套逻辑。
 
 ### 退出码
 
@@ -29,7 +29,7 @@ ctiming-analyze <trace.ctrace> [--json FILE] [--include GLOB] [--exclude GLOB] [
 
 ## 过滤语义
 
-`--include` / `--exclude` / `--min-total` / `--top` **只影响文本摘要**。判定顺序为：先按 `exclude` 丢弃，再要求命中 `include`（若设置了），最后按 `min_total_ns` 过滤；`top` 在按 `total_ns` 排序后截断。缺少 EXIT 导致 `calls` 为 0 的函数本来就不出现在摘要中。
+`--include` / `--exclude` / `--min-total` / `--top` 决定文本摘要显示哪些函数，并写入 JSON 每个函数的 `kept` 标记；它们**不会删减 JSON 的其他数据**。判定顺序为：先按 `exclude` 丢弃，再要求命中 `include`（若设置了），最后按 `min_total_ns` 过滤；`top` 在按 `total_ns` 排序后截断，只影响文本摘要的行数，**不影响** `kept`。缺少 EXIT 导致 `calls` 为 0 的函数本来就不出现在摘要中。
 
 `--json` 则**始终输出全量数据**，不受上述参数影响；每个函数条目携带布尔字段 `kept`，表示该函数在文本摘要中是否被保留，供查看器按需过滤。即使命令同时给出 `--json` 与过滤参数，JSON 仍然自洽、完整。
 
@@ -67,8 +67,8 @@ functions (by total time):
 | `threads` | 事件块数量 |
 | `total_events` | 事件总数 |
 | `dropped` | 截断/溢出计数（每线程至多计一次，并非逐事件丢弃数） |
-| `unbalanced_enter` | 线程结束时仍留在调用栈上的未配对 ENTER 数量 |
-| `orphan_exit` | 调用栈为空时出现的 EXIT 数量 |
+
+`trace` 对象中还含两个**派生（分析器计算）**字段，它们不是 `.ctrace` 原始内容，而是分析器配对 ENTER/EXIT 重建调用树时统计得到：`unbalanced_enter` 为线程结束时仍留在调用栈上的未配对 ENTER 数量，`orphan_exit` 为调用栈为空时出现的 EXIT 数量。
 
 ### `functions`
 

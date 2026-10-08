@@ -79,7 +79,7 @@ CTIMING_EXCLUDE='std::*,__gnu*' ./app
 ./build/ctiming-analyze example_single.ctrace --json analysis.json   # 全量 JSON
 ```
 
-文本摘要支持 `--include GLOB`、`--exclude GLOB`、`--min-total NS`、`--top N` 四个过滤参数，它们**只影响文本输出**；`--json` 始终写出全量自洽的 `analysis.json`，其中每个函数带 `kept` 布尔字段标记是否通过过滤。退出码：`0` 成功，`1` 读取/写文件失败，`2` 用法错误。字段含义与过滤语义详见 [docs/analyzer.md](docs/analyzer.md)。
+文本摘要支持 `--include GLOB`、`--exclude GLOB`、`--min-total NS`、`--top N` 四个过滤参数：它们决定文本摘要显示哪些函数，并写入 JSON 每个函数的 `kept` 布尔标记（`--top` 只影响文本行数，不改变 `kept`）；`--json` 仍始终写出全量自洽的 `analysis.json`，不会因过滤而删减数据。退出码：`0` 成功，`1` 读取/写文件失败，`2` 用法错误。字段含义与过滤语义详见 [docs/analyzer.md](docs/analyzer.md)。
 
 自包含 HTML 查看器（火焰图、时间线、调用关系图）属于**计划 3**，读取 `analysis.json`。
 
