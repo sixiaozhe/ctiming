@@ -1,6 +1,6 @@
 # ctiming 分析器 `ctiming-analyze`
 
-`ctiming-analyze` 读取运行时导出的 `.ctrace` 文件，在分析器内部配对 ENTER/EXIT、重建每线程调用树，再按函数聚合出耗时统计与调用图。它属于**计划 2**；自包含 HTML 查看器属于计划 3，读取本工具生成的 `analysis.json`。
+`ctiming-analyze` 读取运行时导出的 `.ctrace` 文件，在分析器内部配对 ENTER/EXIT、重建每线程调用树，再按函数聚合出耗时统计与调用图。它属于**计划 2**；自包含 HTML 查看器（**计划 3，已完成**）读取本工具生成的 `analysis.json`，使用说明见 [viewer.md](viewer.md)。
 
 ## 用法
 
@@ -154,5 +154,5 @@ functions (by total time):
 
 ## 与其他计划的关系
 
-- **计划 3** 的自包含 HTML 查看器（火焰图、瀑布时间线、调用关系图）读取本工具 `--json` 生成的 `analysis.json`，不依赖文本摘要。
+- **计划 3（已完成）** 的自包含 HTML 查看器（概览、火焰图、调用关系图、单次追踪、调用者/被调用者）读取本工具 `--json` 生成的 `analysis.json`，不依赖文本摘要；使用说明见 [viewer.md](viewer.md)。
 - 需要稳定的机器可读输入时，请始终使用 `--json`；文本摘要仅用于终端快速查看，且会被过滤参数裁剪。
