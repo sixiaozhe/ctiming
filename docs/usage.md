@@ -91,7 +91,7 @@ CTIMING_INCLUDE='main,mid*' CTIMING_EXCLUDE='mid_internal' ./app
 5. **EXTRA 符号段**：`u32 n_extra`，随后每条 `{module: u32, offset: u64, name: string}`。运行期未能符号化的地址写入此处，`module` 为 `0xFFFFFFFF`（`CT_UNKNOWN_MODULE`），`offset` 存的是绝对地址；读回时这些条目被合并到符号表末尾。
 6. **Footer**
    - total_events `u32`（事件总数）
-   - dropped `u32`（被丢弃的事件数）
+   - dropped `u32`（截断/溢出计数：某线程缓冲达到 `CTIMING_BUF_MAX_KB` 上限后会标记截断并停止该线程记录，因此通常每线程至多计一次，**并非**被丢弃的逐事件总数）
    - magic `CTME`（4 字节）
 
 读回时通过 `ct_trace_open`/`ct_trace_close`（`src/trace.h`）解析，签名校验失败、版本/端序不匹配或结构越界都会返回非 `0` 错误码，而不会崩溃。`ctiming-info` 即基于该接口打印摘要与每函数调用次数。
