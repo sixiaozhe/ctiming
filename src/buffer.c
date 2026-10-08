@@ -13,7 +13,9 @@ CT_NOINSTR CTIMING_HIDDEN ct_buffer *ct_buffer_new(size_t initial_cap) {
   }
   b->cap = initial_cap;
   b->count = 0;
+  b->max_cap = 0;
   b->dropped = 0;
+  b->truncated = 0;
   b->next = NULL;
   return b;
 }
@@ -24,8 +26,18 @@ CT_NOINSTR CTIMING_HIDDEN void ct_buffer_free(ct_buffer *b) {
   free(b);
 }
 
+CT_NOINSTR CTIMING_HIDDEN void ct_buffer_set_max(ct_buffer *b, size_t max_cap) {
+  if (b == NULL) return;
+  b->max_cap = max_cap;
+}
+
 CT_NOINSTR CTIMING_HIDDEN int ct_buffer_push(ct_buffer *b, ct_event ev) {
   if (b->count == b->cap) {
+    if (b->max_cap && b->cap >= b->max_cap) {
+      b->truncated = 1;
+      b->dropped++;
+      return 0;
+    }
     size_t new_cap = b->cap * 2;
     ct_event *grown = realloc(b->data, new_cap * sizeof(ct_event));
     if (grown == NULL) {

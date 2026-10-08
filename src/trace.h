@@ -8,6 +8,7 @@
 
 #define CT_PATH_MAX 512
 #define CT_UNKNOWN_MODULE 0xFFFFFFFFu
+#define CT_META_FLAG_TRUNCATED 0x1u
 
 typedef struct {
   uint32_t pid;

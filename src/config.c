@@ -16,12 +16,23 @@ CT_NOINSTR static char *dup_env(const char *name) {
 CT_NOINSTR CTIMING_HIDDEN void ct_config_load(ct_config *c, const char *progname) {
   memset(c, 0, sizeof(*c));
   c->enabled = 1;
+  c->buf_kb = 1024;
+  c->buf_max_kb = 65536;
 
   const char *en = getenv("CTIMING_ENABLE");
   if (en != NULL && (strcmp(en, "off") == 0 || strcmp(en, "0") == 0)) c->enabled = 0;
 
   const char *md = getenv("CTIMING_MAX_DEPTH");
   if (md != NULL) c->max_depth = (unsigned)strtoul(md, NULL, 10);
+
+  const char *bk = getenv("CTIMING_BUF_KB");
+  if (bk != NULL) c->buf_kb = (unsigned)strtoul(bk, NULL, 10);
+
+  const char *bm = getenv("CTIMING_BUF_MAX_KB");
+  if (bm != NULL) c->buf_max_kb = (unsigned)strtoul(bm, NULL, 10);
+
+  const char *du = getenv("CTIMING_DROP_UNKNOWN");
+  if (du != NULL && strcmp(du, "1") == 0) c->drop_unknown = 1;
 
   c->include = dup_env("CTIMING_INCLUDE");
   c->exclude = dup_env("CTIMING_EXCLUDE");

@@ -27,6 +27,9 @@ gcc -finstrument-functions -g app.c -L. -lctiming -o app
 | `CTIMING_INCLUDE` | 逗号分隔的 glob 列表，如 `foo*,std::*` | 未设置 | 非空时，函数名必须命中其中之一才记录 |
 | `CTIMING_EXCLUDE` | 逗号分隔的 glob 列表 | 未设置 | 命中任一项的函数一律丢弃；**优先级高于 INCLUDE** |
 | `CTIMING_OUT` | 输出文件路径 | `./<程序名>.ctrace` | 退出时导出路径；`<程序名>` 取自 `/proc/self/exe` 的 basename |
+| `CTIMING_BUF_KB` | 非负整数（KB） | `1024` | 每线程缓冲初始容量；换算为可容纳的事件数 |
+| `CTIMING_BUF_MAX_KB` | 非负整数（KB） | `65536` | 每线程缓冲扩容上限；达到上限后标记截断并停止该线程记录 |
+| `CTIMING_DROP_UNKNOWN` | `1` 丢弃；未设置或其它值保留 | 保留 | 无法符号化地址的过滤开关 |
 
 glob 语法支持 `*`（任意长度，含空）与 `?`（单个字符），逐项匹配，项两侧空白会被去除，大小写敏感。逗号列表中的空项不匹配任何名字。
 
@@ -44,7 +47,7 @@ glob 语法支持 `*`（任意长度，含空）与 `?`（单个字符），逐�
 CTIMING_INCLUDE='main,mid*' CTIMING_EXCLUDE='mid_internal' ./app
 ```
 
-无法符号化的地址（`0x...`）默认保留；若设置了 `INCLUDE` 则因无法匹配而丢弃。
+无法符号化的地址（`0x...`）默认保留，**即使设置了 `INCLUDE` 也不受影响**；设置 `CTIMING_DROP_UNKNOWN=1` 后一律丢弃。
 
 ## 公共 API
 
@@ -59,7 +62,7 @@ CTIMING_INCLUDE='main,mid*' CTIMING_EXCLUDE='mid_internal' ./app
 | `void ctiming_set_max_depth(unsigned depth)` | `depth`：最大深度，`0` = 不限 | 无 | 运行期更新最大调用深度 |
 | `const char *ctiming_version(void)` | 无 | 指向版本字符串的常量指针 | 返回如 `"0.1.0"` |
 
-除 `ctiming_version`、`ctiming_stop` 外，调用公共 API 会触发一次惰性初始化（内部 `pthread_once`）；`ctiming_version` 仅返回常量字符串、`ctiming_stop` 仅翻转开关，都不做初始化。同样地，若程序未提前调用，首次进入插桩钩子时也会自动初始化。进程退出时由 `atexit` 自动导出一次。
+除 `ctiming_version` 外，调用公共 API 会触发一次惰性初始化（内部 `pthread_once`）；`ctiming_version` 仅返回常量字符串，不做初始化。`ctiming_stop` 会先完成初始化再把记录开关置零，因此**在任何插桩事件之前调用也不会被后续的惰性初始化重新开启**。同样地，若程序未提前调用，首次进入插桩钩子时也会自动初始化。进程退出时由 `atexit` 自动导出一次。
 
 ## `.ctrace` 文件格式
 
@@ -74,7 +77,7 @@ CTIMING_INCLUDE='main,mid*' CTIMING_EXCLUDE='mid_internal' ./app
    - ptr_size `u8`（`sizeof(void*)`）
    - pid `u32`
    - start_ns `u64`（`CLOCK_MONOTONIC` 启动时刻）
-   - flags `u32`（当前写 `0`）
+   - flags `u32`（bit0 为截断标志：任一线程缓冲达到上限时为 `1`，否则 `0`）
    - exe `string`（可执行文件绝对路径）
 2. **MODULES 段**：`u32 n_modules`，随后每条 `{base: u64, path: string}`，用于把符号偏移换算回运行地址。
 3. **SYMBOLS 段**：`u32 n_symbols`，随后每条 `{module: u32, offset: u64, name: string}`。`offset` 为相对所属模块 `base` 的偏移；`name` 已是 demangle 后的函数名（可能为空串）。

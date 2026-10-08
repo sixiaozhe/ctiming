@@ -42,6 +42,7 @@ static _Atomic unsigned g_filter_gen = 0;
 
 static __thread ct_buffer *tls_buf = NULL;
 static __thread int tls_in_hook = 0;
+static __thread int tls_truncated = 0;
 static __thread unsigned tls_depth = 0;
 static __thread uint32_t tls_tid = 0;
 static __thread int tls_tid_set = 0;
@@ -99,13 +100,16 @@ CT_NOINSTR static int append_buffer(ct_buffer ***bufs, size_t *n, size_t *cap, c
 CT_NOINSTR static int dump_locked(void) {
   ct_buffer **bufs = NULL;
   size_t n = 0, cap = 0;
+  int any_truncated = 0;
 
   for (ct_buffer *b = g_retired_head; b; b = b->next) {
+    if (b->truncated) any_truncated = 1;
     if (b->count == 0) continue;
     if (append_buffer(&bufs, &n, &cap, b) != 0) break;
   }
-  if (tls_buf && tls_buf->count > 0) {
-    append_buffer(&bufs, &n, &cap, tls_buf);
+  if (tls_buf) {
+    if (tls_buf->truncated) any_truncated = 1;
+    if (tls_buf->count > 0) append_buffer(&bufs, &n, &cap, tls_buf);
   }
 
   ct_trace_module *mods = NULL;
@@ -139,7 +143,7 @@ CT_NOINSTR static int dump_locked(void) {
   memset(&meta, 0, sizeof(meta));
   meta.pid = (uint32_t)getpid();
   meta.start_ns = g_start_ns;
-  meta.flags = 0;
+  meta.flags = any_truncated ? CT_META_FLAG_TRUNCATED : 0;
   snprintf(meta.exe, CT_PATH_MAX, "%s", g_exe_path);
 
   int rc = ct_trace_write(g_cfg.out_path, (const ct_buffer *const *)bufs, n,
@@ -196,8 +200,14 @@ CT_NOINSTR static void init_once(void) {
 
 CT_NOINSTR static ct_buffer *current_buffer(void) {
   if (!tls_buf) {
-    tls_buf = ct_buffer_new(8192);
-    if (tls_buf) pthread_setspecific(g_key, tls_buf);
+    size_t esz = sizeof(ct_event);
+    size_t init_cap = (size_t)g_cfg.buf_kb * 1024 / esz;
+    if (init_cap < 1) init_cap = 1;
+    tls_buf = ct_buffer_new(init_cap);
+    if (tls_buf) {
+      ct_buffer_set_max(tls_buf, (size_t)g_cfg.buf_max_kb * 1024 / esz);
+      pthread_setspecific(g_key, tls_buf);
+    }
   }
   if (!tls_tid_set) {
     tls_tid = current_tid();
@@ -209,7 +219,8 @@ CT_NOINSTR static ct_buffer *current_buffer(void) {
 CT_NOINSTR static int pass_filter(uintptr_t fn) {
   unsigned gen = atomic_load(&g_filter_gen);
   ct_filter_snapshot *s = atomic_load(&g_filter);
-  if (!s || (!s->include && !s->exclude)) return 1;
+  int have_filter = (s && (s->include || s->exclude));
+  if (!have_filter && !g_cfg.drop_unknown) return 1;
 
   unsigned idx = (unsigned)((fn >> 4) & (CT_FCACHE_SIZE - 1));
   if (tls_fcache[idx].gen == gen && tls_fcache[idx].addr == fn)
@@ -217,8 +228,8 @@ CT_NOINSTR static int pass_filter(uintptr_t fn) {
 
   const char *name = ct_symbols_lookup(&g_syms, fn, NULL, NULL);
   int decision;
-  if (!name) decision = s->include ? 0 : 1;
-  else decision = ct_filter_match(s->include, s->exclude, name);
+  if (!name) decision = g_cfg.drop_unknown ? 0 : 1;
+  else decision = have_filter ? ct_filter_match(s->include, s->exclude, name) : 1;
 
   tls_fcache[idx].addr = fn;
   tls_fcache[idx].decision = decision;
@@ -231,7 +242,7 @@ CT_NOINSTR static void record(uintptr_t fn, uintptr_t cs, ct_event_kind kind, un
   tls_in_hook = 1;
 
   if (!atomic_load(&g_started)) pthread_once(&g_once, init_once);
-  if (!atomic_load(&g_started) || !atomic_load(&g_enabled)) {
+  if (!atomic_load(&g_started) || !atomic_load(&g_enabled) || tls_truncated) {
     tls_in_hook = 0;
     return;
   }
@@ -247,6 +258,7 @@ CT_NOINSTR static void record(uintptr_t fn, uintptr_t cs, ct_event_kind kind, un
       e.fn = fn;
       e.call_site = cs;
       ct_buffer_push(b, e);
+      if (b->truncated) tls_truncated = 1;
     }
   }
   tls_in_hook = 0;
@@ -269,7 +281,10 @@ CT_NOINSTR CTIMING_HIDDEN void ctiming_start(void) {
   atomic_store(&g_enabled, 1);
 }
 
-CT_NOINSTR CTIMING_HIDDEN void ctiming_stop(void) { atomic_store(&g_enabled, 0); }
+CT_NOINSTR CTIMING_HIDDEN void ctiming_stop(void) {
+  pthread_once(&g_once, init_once);
+  atomic_store(&g_enabled, 0);
+}
 
 CT_NOINSTR CTIMING_HIDDEN int ctiming_dump(const char *path) {
   pthread_once(&g_once, init_once);

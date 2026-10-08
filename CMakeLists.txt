@@ -14,10 +14,13 @@ enable_testing()
 
 add_library(ctiming STATIC src/glob.c src/buffer.c src/trace.c src/symbols.c src/config.c src/runtime.c)
 target_include_directories(ctiming PUBLIC include PRIVATE src)
+target_compile_definitions(ctiming PRIVATE _GNU_SOURCE)
+target_compile_options(ctiming PRIVATE -Wall -Wextra)
 target_link_libraries(ctiming PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
 
 add_executable(ctiming-info tools/ctiming-info.c)
 target_include_directories(ctiming-info PRIVATE include src)
+target_compile_options(ctiming-info PRIVATE -Wall -Wextra)
 target_link_libraries(ctiming-info PRIVATE ctiming)
 
 function(ct_add_test name file)
@@ -26,6 +29,7 @@ function(ct_add_test name file)
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+  target_compile_options(${name} PRIVATE -Wall -Wextra)
   target_link_libraries(${name} PRIVATE ctiming)
   add_test(NAME ${name} COMMAND ${name})
 endfunction()
@@ -45,3 +49,12 @@ add_test(
   NAME integration_single
   COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration_test.sh
           $<TARGET_FILE:example_single> $<TARGET_FILE:ctiming-info>)
+
+add_executable(example_threads examples/example_threads.c)
+target_compile_options(example_threads PRIVATE -finstrument-functions -g -O0 -pthread)
+target_link_libraries(example_threads PRIVATE ctiming)
+
+add_test(
+  NAME integration_threads
+  COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration_threads.sh
+          $<TARGET_FILE:example_threads> $<TARGET_FILE:ctiming-info>)

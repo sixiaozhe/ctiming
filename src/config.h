@@ -7,6 +7,9 @@
 typedef struct {
   int enabled;
   unsigned max_depth;
+  unsigned buf_kb;
+  unsigned buf_max_kb;
+  int drop_unknown;
   char *include;
   char *exclude;
   char out_path[CT_PATH_MAX];

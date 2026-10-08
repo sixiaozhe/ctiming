@@ -23,6 +23,18 @@ int main(void) {
   CHECK(b->cap > cap_before);
   CHECK_EQ_LONG(b->data[201].ts, 1199);
 
+  ct_buffer *c = ct_buffer_new(2);
+  CHECK(c != NULL);
+  size_t limit = c->cap;
+  ct_buffer_set_max(c, limit);
+  for (size_t i = 0; i < limit; i++) CHECK_EQ_LONG(ct_buffer_push(c, e), 1);
+  CHECK_EQ_LONG(c->truncated, 0);
+  CHECK_EQ_LONG(ct_buffer_push(c, e), 0);
+  CHECK_EQ_LONG(c->truncated, 1);
+  CHECK_EQ_LONG(c->dropped, 1);
+  CHECK_EQ_LONG(c->count, limit);
+
+  ct_buffer_free(c);
   ct_buffer_free(b);
   if (fails) fprintf(stderr, "%d checks failed\n", fails);
   return fails ? 1 : 0;
