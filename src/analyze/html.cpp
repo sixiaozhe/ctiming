@@ -8,9 +8,10 @@ static std::string escape_script(const std::string &s) {
   std::string out;
   out.reserve(s.size());
   for (size_t i = 0; i < s.size(); i++) {
-    if (s[i] == '<' && i + 1 < s.size() && s[i + 1] == '/') {
-      out += "<\\/";
-      i++;
+    if (s[i] == '<') {
+      out += "\\u003c";
+    } else if (s[i] == '>') {
+      out += "\\u003e";
     } else {
       out += s[i];
     }

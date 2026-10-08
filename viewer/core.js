@@ -41,10 +41,11 @@
     const n = document.createElement(tag);
     if (attrs) {
       for (const k in attrs) {
-        if (k === "class") n.className = attrs[k];
-        else if (k === "text") n.textContent = attrs[k];
-        else if (k === "html") n.innerHTML = attrs[k];
-        else n.setAttribute(k, attrs[k]);
+        const v = attrs[k];
+        if (k === "class") n.className = v;
+        else if (k === "text") n.textContent = v;
+        else if (k.indexOf("on") === 0 && typeof v === "function") n[k] = v;
+        else n.setAttribute(k, v);
       }
     }
     if (kids != null) {
@@ -65,6 +66,7 @@
   };
 
   CT.showTab = function (i) {
+    if (i < 0 || i >= CT.tabs.length) return;
     CT.state.active = i;
     const root = document.getElementById("view");
     CT.clear(root);
@@ -75,9 +77,9 @@
   };
 
   CT.openCallers = function (fnId) {
-    CT.pendingFn = fnId;
     for (let i = 0; i < CT.tabs.length; i++)
-      if (CT.tabs[i].id === "callers") { CT.showTab(i); return; }
+      if (CT.tabs[i].id === "callers") { CT.pendingFn = fnId; CT.showTab(i); return; }
+    CT.pendingFn = null;
   };
 
   CT.tooltip = function (text, x, y) {
