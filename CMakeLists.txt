@@ -123,3 +123,12 @@ add_test(
   NAME integration_threads
   COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration_threads.sh
           $<TARGET_FILE:example_threads> $<TARGET_FILE:ctiming-info>)
+
+add_executable(example_complex examples/example_complex.cpp)
+target_compile_options(example_complex PRIVATE -finstrument-functions -g -O0 -pthread)
+target_link_libraries(example_complex PRIVATE ctiming)
+
+add_test(
+  NAME integration_complex
+  COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration_complex.sh
+          $<TARGET_FILE:example_complex> $<TARGET_FILE:ctiming-analyze>)
