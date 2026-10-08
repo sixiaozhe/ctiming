@@ -6,6 +6,10 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
   uint64_t addr;
   char name[256];
@@ -27,5 +31,9 @@ CTIMING_HIDDEN void ct_symbols_free(ct_symbol_table *t);
 
 CTIMING_HIDDEN const char *ct_symbols_lookup(const ct_symbol_table *t, uintptr_t addr,
                                              uintptr_t *offset, uint32_t *module);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

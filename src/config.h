@@ -4,6 +4,10 @@
 #include "trace.h"
 #include "ct_common.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
   int enabled;
   unsigned max_depth;
@@ -17,5 +21,9 @@ typedef struct {
 
 CTIMING_HIDDEN void ct_config_load(ct_config *c, const char *progname);
 CTIMING_HIDDEN void ct_config_clear(ct_config *c);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

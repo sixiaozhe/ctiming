@@ -6,6 +6,10 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define CT_PATH_MAX 512
 #define CT_UNKNOWN_MODULE 0xFFFFFFFFu
 #define CT_META_FLAG_TRUNCATED 0x1u
@@ -62,5 +66,9 @@ typedef struct {
 
 CTIMING_HIDDEN int ct_trace_open(const char *path, ct_trace_reader *r);
 CTIMING_HIDDEN void ct_trace_close(ct_trace_reader *r);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

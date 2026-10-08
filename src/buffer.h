@@ -5,6 +5,10 @@
 #include <stdint.h>
 #include "ct_common.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum { CT_EV_ENTER = 0, CT_EV_EXIT = 1 } ct_event_kind;
 
 typedef struct {
@@ -29,5 +33,9 @@ CTIMING_HIDDEN ct_buffer *ct_buffer_new(size_t initial_cap);
 CTIMING_HIDDEN void ct_buffer_free(ct_buffer *b);
 CTIMING_HIDDEN void ct_buffer_set_max(ct_buffer *b, size_t max_cap);
 CTIMING_HIDDEN int ct_buffer_push(ct_buffer *b, ct_event ev);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
