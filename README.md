@@ -1,6 +1,6 @@
 # ctiming
 
-`ctiming` 是一个面向 C/C++ 程序的**函数级耗时统计与调用追踪工具**。它在编译期通过 GCC/Clang 的 `-finstrument-functions` 为每个函数插入进入/退出钩子，运行时库 `libctiming` 把每次调用记录到每线程的无锁缓冲，进程退出时导出为二进制 `.ctrace` 文件；再用 `ctiming-info` 读回统计结果。完整的分析器与自包含 HTML 查看器为后续计划。
+`ctiming` 是一个面向 C/C++ 程序的**函数级耗时统计与调用追踪工具**。它在编译期通过 GCC/Clang 的 `-finstrument-functions` 为每个函数插入进入/退出钩子，运行时库 `libctiming` 把每次调用记录到每线程的无锁缓冲，进程退出时导出为二进制 `.ctrace` 文件；再用 `ctiming-info` 读回统计结果，或用分析器 `ctiming-analyze` 重建调用树、聚合统计并输出 JSON。自包含 HTML 查看器为后续计划。
 
 ## 快速开始
 
@@ -69,6 +69,20 @@ CTIMING_EXCLUDE='std::*,__gnu*' ./app
 
 详见 [docs/usage.md](docs/usage.md)。
 
+## 分析器（计划 2）
+
+`ctiming-analyze` 读取 `.ctrace`，配对 ENTER/EXIT、重建调用树并聚合出函数耗时与调用图。
+
+```bash
+./build/example_single                       # 生成 example_single.ctrace
+./build/ctiming-analyze example_single.ctrace          # 文本摘要
+./build/ctiming-analyze example_single.ctrace --json analysis.json   # 全量 JSON
+```
+
+文本摘要支持 `--include GLOB`、`--exclude GLOB`、`--min-total NS`、`--top N` 四个过滤参数，它们**只影响文本输出**；`--json` 始终写出全量自洽的 `analysis.json`，其中每个函数带 `kept` 布尔字段标记是否通过过滤。退出码：`0` 成功，`1` 读取/写文件失败，`2` 用法错误。字段含义与过滤语义详见 [docs/analyzer.md](docs/analyzer.md)。
+
+自包含 HTML 查看器（火焰图、时间线、调用关系图）属于**计划 3**，读取 `analysis.json`。
+
 ## 已知局限
 
 - **被内联的函数不会出现**：`-finstrument-functions` 按函数体插桩，内联后原函数消失。
@@ -79,5 +93,5 @@ CTIMING_EXCLUDE='std::*,__gnu*' ./app
 ## 路线图
 
 - **计划 1（已完成）**：运行时库 `libctiming` + `ctiming.h`、插桩钩子、每线程缓冲、自符号化、`CTIMING_*` 过滤、`.ctrace` 导出、`ctiming-info`。
-- **计划 2（后续）**：分析器 `ctiming-analyze`，重建调用树、聚合统计与调用图。
-- **计划 3（后续）**：自包含 HTML 查看器（火焰图、时间线、调用关系图）。
+- **计划 2（已完成）**：分析器 `ctiming-analyze`，重建调用树、聚合统计与调用图，支持文本摘要过滤与 `--json` 全量导出。
+- **计划 3（后续）**：自包含 HTML 查看器（火焰图、时间线、调用关系图），读取 `analysis.json`。
