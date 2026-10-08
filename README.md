@@ -56,15 +56,16 @@ cmake -S . -B build && cmake --build build -j && ctest --test-dir build --output
 | `CTIMING_MAX_DEPTH` | 非负整数，`0` = 不限 | `0` | 最大调用深度，超过则不记录 |
 | `CTIMING_INCLUDE` | 逗号分隔 glob | 未设（不限） | 非空时，函数名须命中才记录 |
 | `CTIMING_EXCLUDE` | 逗号分隔 glob | 未设 | 命中的函数一律丢弃，优先级最高 |
+| `CTIMING_EXCLUDE_LIB` | `off` / `0` 关闭，其它值或无 | 开启 | 默认排除 C/C++ 标准库符号（`std::`、`__gnu_cxx::` 等） |
 | `CTIMING_OUT` | 文件路径 | `./<程序名>.ctrace` | 导出路径 |
 | `CTIMING_BUF_KB` | 非负整数（KB） | `1024` | 每线程缓冲初始容量 |
 | `CTIMING_BUF_MAX_KB` | 非负整数（KB），`0` = 不限 | `65536` | 每线程缓冲扩容上限，达到后标记截断并停止该线程记录 |
 | `CTIMING_DROP_UNKNOWN` | `1` 丢弃；其它值或未设置 = 保留 | `0`（保留） | 是否丢弃无法符号化的地址 |
 
-过滤语义：**`EXCLUDE` 优先**——命中 `EXCLUDE` 即丢弃；否则若 `INCLUDE` 非空则必须命中才保留，`INCLUDE` 为空则保留。无法符号化的地址（`0x...`）默认**保留**，设置 `CTIMING_DROP_UNKNOWN=1` 后一律丢弃。示例：
+过滤语义：默认先排除 C/C++ 标准库符号（`CTIMING_EXCLUDE_LIB=off` 可关闭）；随后 **`EXCLUDE` 优先**——命中 `EXCLUDE` 即丢弃；否则若 `INCLUDE` 非空则必须命中才保留，`INCLUDE` 为空则保留。判定基于函数自身的限定名，参数/返回值里含 `std::` 的用户函数仍会保留。无法符号化的地址（`0x...`）默认**保留**，设置 `CTIMING_DROP_UNKNOWN=1` 后一律丢弃。示例：
 
 ```bash
-CTIMING_EXCLUDE='std::*,__gnu*' ./app
+CTIMING_EXCLUDE='*detail*,*internal*' ./app
 ```
 
 详见 [docs/usage.md](docs/usage.md)。

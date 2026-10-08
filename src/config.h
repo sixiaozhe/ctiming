@@ -14,6 +14,7 @@ typedef struct {
   unsigned buf_kb;
   unsigned buf_max_kb;
   int drop_unknown;
+  int exclude_lib;
   char *include;
   char *exclude;
   char out_path[CT_PATH_MAX];
@@ -21,6 +22,7 @@ typedef struct {
 
 CTIMING_HIDDEN void ct_config_load(ct_config *c, const char *progname);
 CTIMING_HIDDEN void ct_config_clear(ct_config *c);
+CTIMING_HIDDEN int ct_lib_name_match(const char *name);
 
 #ifdef __cplusplus
 }

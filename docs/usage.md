@@ -1,6 +1,6 @@
 # ctiming 使用说明
 
-本文档描述运行时库 `libctiming` 的使用方式、`CTIMING_*` 环境变量、公共 API 与 `.ctrace` 文件格式。分析器 `ctiming-analyze` 已实现（计划 2），详见 [analyzer.md](analyzer.md)；**HTML 查看器属计划 3，尚未提供**。
+本文档描述运行时库 `libctiming` 的使用方式、`CTIMING_*` 环境变量、公共 API 与 `.ctrace` 文件格式。分析器 `ctiming-analyze`（计划 2）与 HTML 查看器（计划 3）均已实现，分别见 [analyzer.md](analyzer.md) 与 [viewer.md](viewer.md)。
 
 ## 编译与链接
 
@@ -26,6 +26,7 @@ gcc -finstrument-functions -g app.c -L. -lctiming -o app
 | `CTIMING_MAX_DEPTH` | 非负整数（`strtoul` 解析），`0` = 不限 | `0` | 最大调用深度；`depth >= MAX_DEPTH` 的事件被丢弃 |
 | `CTIMING_INCLUDE` | 逗号分隔的 glob 列表，如 `foo*,std::*` | 未设置 | 非空时，函数名必须命中其中之一才记录 |
 | `CTIMING_EXCLUDE` | 逗号分隔的 glob 列表 | 未设置 | 命中任一项的函数一律丢弃；**优先级高于 INCLUDE** |
+| `CTIMING_EXCLUDE_LIB` | `off` 或 `0` 关闭；其它值、未设置均视为开启 | 开启 | 默认排除 C/C++ 标准库符号（`std::`、`__gnu_cxx::` 等） |
 | `CTIMING_OUT` | 输出文件路径 | `./<程序名>.ctrace` | 退出时导出路径；`<程序名>` 取自 `/proc/self/exe` 的 basename |
 | `CTIMING_BUF_KB` | 非负整数（KB） | `1024` | 每线程缓冲初始容量；换算为可容纳的事件数 |
 | `CTIMING_BUF_MAX_KB` | 非负整数（KB） | `65536` | 每线程缓冲扩容上限；达到上限后标记截断并停止该线程记录 |
@@ -35,13 +36,14 @@ glob 语法支持 `*`（任意长度，含空）与 `?`（单个字符），逐�
 
 ### 过滤语义
 
-判定顺序如下（实现见 `ct_filter_match`）：
+判定顺序如下（实现见 `pass_filter` 与 `ct_filter_match`）：
 
-1. 若函数名命中 `CTIMING_EXCLUDE`（或 API 设置的 `exclude`）→ **丢弃**。
-2. 否则，若 `INCLUDE` 非空 → 必须命中 `INCLUDE` 才保留，否则丢弃。
-3. 否则（`INCLUDE` 为空或未设置）→ 保留。
+1. 若 `CTIMING_EXCLUDE_LIB` 开启（默认）且函数名属于 C/C++ 标准库（`std::`、`__gnu_cxx::`、`__gnu::`、`gnu::`、`__cxxabiv1::`、`__cxx::`、`operator new`、`operator delete`）→ **丢弃**。
+2. 否则，若函数名命中 `CTIMING_EXCLUDE`（或 API 设置的 `exclude`）→ **丢弃**。
+3. 否则，若 `INCLUDE` 非空 → 必须命中 `INCLUDE` 才保留，否则丢弃。
+4. 否则（`INCLUDE` 为空或未设置）→ 保留。
 
-即 **EXCLUDE 优先级最高**。示例：
+即 **标准库排除与 `EXCLUDE` 优先级最高**。注意：判定基于函数**自身的限定名**（忽略参数列表里的 `std::` 类型），因此返回 `std::vector` 或参数含 `std::` 的**用户函数仍会保留**。若要连同标准库一起记录，设 `CTIMING_EXCLUDE_LIB=off`。示例：
 
 ```bash
 CTIMING_INCLUDE='main,mid*' CTIMING_EXCLUDE='mid_internal' ./app

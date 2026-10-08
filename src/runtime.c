@@ -220,7 +220,7 @@ CT_NOINSTR static int pass_filter(uintptr_t fn) {
   unsigned gen = atomic_load(&g_filter_gen);
   ct_filter_snapshot *s = atomic_load(&g_filter);
   int have_filter = (s && (s->include || s->exclude));
-  if (!have_filter && !g_cfg.drop_unknown) return 1;
+  if (!have_filter && !g_cfg.drop_unknown && !g_cfg.exclude_lib) return 1;
 
   unsigned idx = (unsigned)((fn >> 4) & (CT_FCACHE_SIZE - 1));
   if (tls_fcache[idx].gen == gen && tls_fcache[idx].addr == fn)
@@ -229,6 +229,7 @@ CT_NOINSTR static int pass_filter(uintptr_t fn) {
   const char *name = ct_symbols_lookup(&g_syms, fn, NULL, NULL);
   int decision;
   if (!name) decision = g_cfg.drop_unknown ? 0 : 1;
+  else if (g_cfg.exclude_lib && ct_lib_name_match(name)) decision = 0;
   else decision = have_filter ? ct_filter_match(s->include, s->exclude, name) : 1;
 
   tls_fcache[idx].addr = fn;
