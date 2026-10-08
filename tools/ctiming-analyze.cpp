@@ -5,6 +5,10 @@
 #include <cstring>
 #include <string>
 
+static void usage(const char *argv0) {
+  std::fprintf(stderr, "usage: %s <trace.ctrace> [--json FILE] [--include GLOB] [--exclude GLOB] [--min-total NS] [--top N]\n", argv0);
+}
+
 int main(int argc, char **argv) {
   std::string trace_path, json_path, include, exclude;
   bool has_include = false, has_exclude = false;
@@ -17,12 +21,12 @@ int main(int argc, char **argv) {
     else if (a == "--exclude" && i + 1 < argc) { exclude = argv[++i]; has_exclude = true; }
     else if (a == "--min-total" && i + 1 < argc) { min_total = std::strtoull(argv[++i], nullptr, 10); }
     else if (a == "--top" && i + 1 < argc) { top = std::atoi(argv[++i]); }
-    else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "unknown option: %s\n", a.c_str()); return 2; }
+    else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "unknown option: %s\n", a.c_str()); usage(argv[0]); return 2; }
     else if (trace_path.empty()) { trace_path = a; }
-    else { std::fprintf(stderr, "too many arguments\n"); return 2; }
+    else { std::fprintf(stderr, "too many arguments\n"); usage(argv[0]); return 2; }
   }
   if (trace_path.empty()) {
-    std::fprintf(stderr, "usage: %s <trace.ctrace> [--json FILE] [--include GLOB] [--exclude GLOB] [--min-total NS] [--top N]\n", argv[0]);
+    usage(argv[0]);
     return 2;
   }
   ct::Trace trace;
