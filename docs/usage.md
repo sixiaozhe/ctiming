@@ -1,6 +1,6 @@
 # ctiming 使用说明
 
-本文档描述运行时库 `libctiming` 的使用方式、`CTIMING_*` 环境变量、公共 API 与 `.ctrace` 文件格式。分析器 `ctiming-analyze` 与 HTML 查看器属于计划 2/3，**当前尚未提供**。
+本文档描述运行时库 `libctiming` 的使用方式、`CTIMING_*` 环境变量、公共 API 与 `.ctrace` 文件格式。分析器 `ctiming-analyze` 已实现（计划 2），详见 [analyzer.md](analyzer.md)；**HTML 查看器属计划 3，尚未提供**。
 
 ## 编译与链接
 
@@ -98,7 +98,5 @@ CTIMING_INCLUDE='main,mid*' CTIMING_EXCLUDE='mid_internal' ./app
 
 ## 分析器与查看器
 
-- **计划 2**：`ctiming-analyze` 分析器（C++17），负责配对 ENTER/EXIT、重建调用树、聚合统计与调用图。
-- **计划 3**：自包含 HTML 查看器（火焰图、瀑布时间线、调用关系图）。
-
-这两者**尚未实现**，当前只有运行时采集与 `ctiming-info` 读回。
+- **计划 2（已实现）**：`ctiming-analyze` 分析器（C++17），配对 ENTER/EXIT、重建调用树、聚合统计与调用图，支持文本摘要过滤与 `--json` 全量导出。用法见 [analyzer.md](analyzer.md)。
+- **计划 3（尚未提供）**：自包含 HTML 查看器（火焰图、瀑布时间线、调用关系图），读取 `analysis.json`。

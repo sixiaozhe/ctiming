@@ -46,7 +46,7 @@ functions:
 cmake -S . -B build && cmake --build build -j && ctest --test-dir build --output-on-failure
 ```
 
-依赖 CMake ≥ 3.16、C11/C++17 编译器与 Linux glibc。构建产物：静态库 `ctiming`、CLI `ctiming-info`、示例 `example_single`，以及各 `test_*` 测试。
+依赖 CMake ≥ 3.16、C11/C++17 编译器与 Linux glibc。构建产物：静态库 `ctiming`、CLI `ctiming-info`、分析器 `ctiming-analyze`、示例 `example_single`，以及各 `test_*` 测试。
 
 ## 环境变量
 
