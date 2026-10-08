@@ -38,7 +38,8 @@ add_library(ctiming_analysis STATIC
   src/analyze/event.cpp
   src/analyze/calltree.cpp
   src/analyze/aggregate.cpp
-  src/analyze/json.cpp)
+  src/analyze/json.cpp
+  src/analyze/analysis.cpp)
 target_include_directories(ctiming_analysis PUBLIC src/analyze PRIVATE src)
 target_compile_options(ctiming_analysis PRIVATE -Wall -Wextra)
 target_link_libraries(ctiming_analysis PUBLIC ctiming)
@@ -62,6 +63,7 @@ ct_add_analysis_test(test_event tests/test_event.cpp)
 ct_add_analysis_test(test_calltree tests/test_calltree.cpp)
 ct_add_analysis_test(test_aggregate tests/test_aggregate.cpp)
 ct_add_analysis_test(test_json tests/test_json.cpp)
+ct_add_analysis_test(test_analysis tests/test_analysis.cpp)
 
 add_executable(example_single examples/example_single.c)
 target_compile_options(example_single PRIVATE -finstrument-functions -g -O0)
