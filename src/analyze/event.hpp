@@ -2,7 +2,6 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-#include "trace.h"
 
 namespace ct {
 

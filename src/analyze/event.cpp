@@ -1,4 +1,5 @@
 #include "event.hpp"
+#include "trace.h"
 #include <cstdio>
 #include <utility>
 
@@ -18,6 +19,8 @@ std::string Trace::name_of(uint32_t fn_id) const {
 }
 
 bool load_trace(const std::string &path, Trace &out, std::string &err) {
+  out = Trace{};
+  err.clear();
   ct_trace_reader r;
   int rc = ct_trace_open(path.c_str(), &r);
   if (rc != 0) {

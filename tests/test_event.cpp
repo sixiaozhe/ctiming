@@ -1,5 +1,6 @@
 #include "check.h"
 #include "event.hpp"
+#include "trace.h"
 #include <cstring>
 #include <string>
 #include <unistd.h>
@@ -43,6 +44,10 @@ int main() {
   CHECK_EQ_LONG(t.threads[0].events[1].ts, 40);
   CHECK(t.name_of(0) == "main");
   CHECK(t.name_of(99).substr(0, 2) == "0x");
+
+  CHECK(load_trace(path, t, err));
+  CHECK_EQ_LONG((long)t.threads.size(), 1);
+  CHECK_EQ_LONG((long)t.symbols.size(), 1);
 
   Trace bad;
   CHECK(!load_trace("/tmp/does_not_exist_xyz.bin", bad, err));
