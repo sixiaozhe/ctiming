@@ -74,6 +74,16 @@ add_test(
   COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration_test.sh
           $<TARGET_FILE:example_single> $<TARGET_FILE:ctiming-info>)
 
+add_executable(ctiming-analyze tools/ctiming-analyze.cpp)
+target_include_directories(ctiming-analyze PRIVATE src src/analyze)
+target_link_libraries(ctiming-analyze PRIVATE ctiming_analysis)
+target_compile_options(ctiming-analyze PRIVATE -Wall -Wextra)
+
+add_test(
+  NAME integration_analyze
+  COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration_analyze.sh
+          $<TARGET_FILE:example_single> $<TARGET_FILE:ctiming-analyze>)
+
 add_executable(example_threads examples/example_threads.c)
 target_compile_options(example_threads PRIVATE -finstrument-functions -g -O0 -pthread)
 target_link_libraries(example_threads PRIVATE ctiming)
