@@ -350,7 +350,8 @@ if (allBtn && rootsBtn) {
   const allCount = traceItems().length;
   check(allCount >= rootsCount, "全部调用 should list at least as many items as 顶层调用");
   if (CT.data.instances.length > rootsCount) {
-    check(allCount === CT.data.instances.length, "全部调用 should list every instance (" + allCount + " vs " + CT.data.instances.length + ")");
+    const cap = CT.TRACE_MAX_ROWS || Infinity;
+    check(allCount === Math.min(CT.data.instances.length, cap), "全部调用 should list every instance up to the cap (" + allCount + " vs " + Math.min(CT.data.instances.length, cap) + ")");
   }
   rootsBtn.onclick();
   check(traceItems().length === rootsCount, "顶层调用 should restore the root list");
@@ -364,10 +365,11 @@ if (threadSel && CT.data.threads.length) {
   threadSel.value = String(tid);
   threadSel.onchange();
   const expected = CT.data.instances.filter(function (i) { return i.tid === tid; }).length;
-  check(traceItems().length === expected, "thread filter mismatch: " + traceItems().length + " vs " + expected);
+  const cap = CT.TRACE_MAX_ROWS || Infinity;
+  check(traceItems().length === Math.min(expected, cap), "thread filter mismatch: " + traceItems().length + " vs " + Math.min(expected, cap));
   threadSel.value = "all";
   threadSel.onchange();
-  check(traceItems().length === CT.data.instances.length, "全部线程 should restore every instance");
+  check(traceItems().length === Math.min(CT.data.instances.length, cap), "全部线程 should restore every instance up to the cap");
 }
 
 const sortSel = document.getElementById("trace-sort");
@@ -411,6 +413,22 @@ if (gsearch && searchable.length) {
   const callersBody = document.getElementById("callers-body");
   check(callersBody != null && callersBody.childNodes.length >= 1, "callers tab did not render after global search");
 }
+
+const bigInstances = [];
+for (let i = 0; i < 1200; i++) bigInstances.push({ id: i, fn: 0, tid: 1, depth: 0, parent: -1, start_ns: i, end_ns: i + 1, self_ns: 1, children: [] });
+const bigData = {
+  trace: { exe: "synthetic", pid: 1, flags: 0, modules: 1, symbols: 1, threads: 1, total_events: 2400, dropped: 0, unbalanced_enter: 0, orphan_exit: 0 },
+  functions: [{ id: 0, name: "fn", module: 0, offset: 0, calls: 1200, total_ns: 1200, self_ns: 1200, min_ns: 1, max_ns: 1, kept: true }],
+  call_graph: [],
+  aggregated: [{ fn: 0, calls: 1200, total_ns: 1200, self_ns: 1200, children: [] }],
+  threads: [{ tid: 1, roots: bigInstances.map(function (x) { return x.id; }) }],
+  instances: bigInstances,
+};
+CT.init(bigData);
+showTabById("trace");
+const capAllBtn = document.getElementById("trace-mode-all");
+if (capAllBtn) capAllBtn.onclick();
+check(traceItems().length === (CT.TRACE_MAX_ROWS || Infinity), "trace list should cap at TRACE_MAX_ROWS for large data (" + traceItems().length + ")");
 
 if (failures) {
   console.error(failures + " smoke check(s) failed");

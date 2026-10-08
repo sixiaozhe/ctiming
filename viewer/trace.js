@@ -5,6 +5,7 @@
   let thread = "all";
   let sortKey = "dur";
   const MAX_ROWS = 500;
+  CT.TRACE_MAX_ROWS = MAX_ROWS;
 
   function dur(i) { return i.end_ns - i.start_ns; }
 
