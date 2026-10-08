@@ -1,6 +1,6 @@
 # ctiming
 
-`ctiming` 是一个面向 C/C++ 程序的**函数级耗时统计与调用追踪工具**。它在编译期通过 GCC/Clang 的 `-finstrument-functions` 为每个函数插入进入/退出钩子，运行时库 `libctiming` 把每次调用记录到每线程的无锁缓冲，进程退出时导出为二进制 `.ctrace` 文件；再用 `ctiming-info` 读回统计结果，或用分析器 `ctiming-analyze` 重建调用树、聚合统计并输出 JSON。自包含 HTML 查看器为后续计划。
+`ctiming` 是一个面向 C/C++ 程序的**函数级耗时统计与调用追踪工具**。它在编译期通过 GCC/Clang 的 `-finstrument-functions` 为每个函数插入进入/退出钩子，运行时库 `libctiming` 把每次调用记录到每线程的无锁缓冲，进程退出时导出为二进制 `.ctrace` 文件；再用 `ctiming-info` 读回统计结果，或用分析器 `ctiming-analyze` 重建调用树、聚合统计并输出 JSON，或生成自包含的 HTML 报告。
 
 ## 快速开始
 
@@ -81,7 +81,16 @@ CTIMING_EXCLUDE='std::*,__gnu*' ./app
 
 文本摘要支持 `--include GLOB`、`--exclude GLOB`、`--min-total NS`、`--top N` 四个过滤参数：它们决定文本摘要显示哪些函数，并写入 JSON 每个函数的 `kept` 布尔标记（`--top` 只影响文本行数，不改变 `kept`）；`--json` 仍始终写出全量自洽的 `analysis.json`，不会因过滤而删减数据。退出码：`0` 成功，`1` 读取/写文件失败，`2` 用法错误。字段含义与过滤语义详见 [docs/analyzer.md](docs/analyzer.md)。
 
-自包含 HTML 查看器（火焰图、时间线、调用关系图）属于**计划 3**，读取 `analysis.json`。
+## 生成 HTML 报告（计划 3）
+
+`ctiming-analyze` 还能把分析结果生成为**自包含、离线可用**的单文件 HTML 报告：数据与查看器（CSS/JS）全部内联，不引用 CDN，无需网络。
+
+```bash
+./build/example_single
+./build/ctiming-analyze example_single.ctrace -o report.html
+```
+
+`-o FILE` 与 `--html FILE` 等价；两者可与 `--json FILE` **同时使用**，一次运行同时写出 HTML 与 JSON 两份文件。给出 `-o`/`--html` 后不再打印文本摘要，成功时打印 `wrote FILE`。报告包含**概览、火焰图、调用关系图、单次追踪、调用者/被调用者**五个 Tab，读取 `analysis.json` 数据，详见 [docs/viewer.md](docs/viewer.md)。
 
 ## 已知局限
 
@@ -94,4 +103,4 @@ CTIMING_EXCLUDE='std::*,__gnu*' ./app
 
 - **计划 1（已完成）**：运行时库 `libctiming` + `ctiming.h`、插桩钩子、每线程缓冲、自符号化、`CTIMING_*` 过滤、`.ctrace` 导出、`ctiming-info`。
 - **计划 2（已完成）**：分析器 `ctiming-analyze`，重建调用树、聚合统计与调用图，支持文本摘要过滤与 `--json` 全量导出。
-- **计划 3（后续）**：自包含 HTML 查看器（火焰图、时间线、调用关系图），读取 `analysis.json`。
+- **计划 3（已完成）**：自包含 HTML 查看器（概览、火焰图、调用关系图、单次追踪、调用者/被调用者），由 `ctiming-analyze -o report.html` 生成，读取 `analysis.json`。
