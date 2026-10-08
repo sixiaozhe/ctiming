@@ -30,6 +30,10 @@ int main() {
   CHECK(h.find("top_ns") == std::string::npos);
   CHECK(h.find("CT.openCallers") != std::string::npos);
   CHECK(h.find("最重函数总耗时") != std::string::npos);
+  CHECK(h.find("CT.registerTab(\"flame\"") != std::string::npos);
+  CHECK(h.find("CT.registerTab(\"graph\"") != std::string::npos);
+  CHECK(h.find("CT.registerTab(\"trace\"") != std::string::npos);
+  CHECK(h.find("CT.registerTab(\"callers\"") != std::string::npos);
   if (fails) fprintf(stderr, "%d checks failed\n", fails);
   return fails ? 1 : 0;
 }
