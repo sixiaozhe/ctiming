@@ -106,11 +106,12 @@ functions (by total time):
 | 字段 | 含义 |
 |------|------|
 | `fn` | 符号表下标 |
-| `name` | 函数名 |
 | `calls` | 合并后该节点的调用次数 |
 | `total_ns` | 合并后含子调用的总耗时 |
 | `self_ns` | 合并后自身耗时 |
 | `children` | 子节点数组，结构同上（同名子节点会递归合并） |
+
+`aggregated` 节点只携带 `fn`，不再重复写入 `name`；查看器可经由全量 `functions` 数组按 `fn` 取回函数名。
 
 ### `threads`
 
@@ -129,13 +130,14 @@ functions (by total time):
 |------|------|
 | `id` | 实例下标 |
 | `fn` | 函数对应的符号表下标 |
-| `name` | 函数名 |
 | `tid` | 线程号 |
 | `depth` | 调用深度，根为 `0` |
 | `parent` | 父实例 `id`；根为 `-1` |
 | `start_ns` / `end_ns` | 进入/退出时间戳（同线程内单调） |
 | `self_ns` | 自身耗时（总时长减去直接子实例时长之和，不足则记 `0`） |
 | `children` | 子实例 `id` 数组 |
+
+`instances` 条目同样只携带 `fn`，函数名统一从 `functions`（每个 `fn` 都有对应条目）取得。
 
 ## 时间语义
 
@@ -148,7 +150,7 @@ functions (by total time):
 
 ## 递归标记
 
-`recursive` 表示该调用边位于递归环上：`caller == callee` 的自环直接标记；否则沿调用图从 `callee` 出发做可达性搜索，若能回到 `caller` 则标记为递归。该标记只描述边是否成环，不改变 `calls`/`total_ns` 的统计口径。
+`recursive` 表示该调用边位于递归环上：`caller == callee` 的自环直接标记；否则先对调用图跑一次强连通分量（SCC）分析，当 `caller` 与 `callee` 落在同一个大小大于 1 的 SCC 中时标记为递归。该标记只描述边是否成环，不改变 `calls`/`total_ns` 的统计口径。
 
 ## 与其他计划的关系
 

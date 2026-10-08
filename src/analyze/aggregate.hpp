@@ -28,6 +28,13 @@ struct AggNode {
   uint64_t total_ns = 0;
   uint64_t self_ns = 0;
   std::vector<AggNode> children;
+
+  AggNode() = default;
+  AggNode(const AggNode &) = default;
+  AggNode(AggNode &&) = default;
+  AggNode &operator=(const AggNode &) = default;
+  AggNode &operator=(AggNode &&) = default;
+  ~AggNode();
 };
 
 struct Analysis {

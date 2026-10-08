@@ -78,6 +78,22 @@ int main() {
   CHECK_EQ_LONG(ma.aggregated[0].calls, 2);
   CHECK_EQ_LONG(ma.aggregated[0].total_ns, 30);
 
+  std::vector<ThreadEvents> long_cyc;
+  long_cyc.push_back(mk(1, {
+    ev(0,0,0), ev(0,1,10), ev(0,2,20), ev(0,0,30),
+    ev(1,0,40), ev(1,2,50), ev(1,1,60), ev(1,0,70)
+  }));
+  Analysis lca = aggregate(build_call_tree(long_cyc), 3);
+  const Edge *e01 = lca.find_edge(0, 1);
+  const Edge *e12 = lca.find_edge(1, 2);
+  const Edge *e20 = lca.find_edge(2, 0);
+  CHECK(e01 != nullptr);
+  CHECK(e12 != nullptr);
+  CHECK(e20 != nullptr);
+  if (e01) CHECK(e01->recursive);
+  if (e12) CHECK(e12->recursive);
+  if (e20) CHECK(e20->recursive);
+
   if (fails) fprintf(stderr, "%d checks failed\n", fails);
   return fails ? 1 : 0;
 }

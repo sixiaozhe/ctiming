@@ -2,17 +2,37 @@
 #include "json.hpp"
 #include <algorithm>
 #include <cstdio>
+#include <functional>
 #include <map>
+#include <pthread.h>
 #include <sstream>
 #include <vector>
 #include "glob.h"
 
 namespace ct {
 
+static void run_with_big_stack(const std::function<void()> &fn) {
+  struct Ctx { const std::function<void()> *fn; };
+  Ctx ctx{&fn};
+  pthread_attr_t attr;
+  pthread_attr_init(&attr);
+  pthread_attr_setstacksize(&attr, 256ULL * 1024 * 1024);
+  pthread_t th;
+  int rc = pthread_create(&th, &attr, [](void *p) -> void * {
+    static_cast<Ctx *>(p)->fn->operator()();
+    return nullptr;
+  }, &ctx);
+  if (rc == 0) pthread_join(th, nullptr);
+  else fn();
+  pthread_attr_destroy(&attr);
+}
+
 AnalysisResult analyze(const Trace &trace, const Options &opt) {
   AnalysisResult r;
-  r.tree = build_call_tree(trace.threads);
-  r.agg = aggregate(r.tree, (uint32_t)trace.symbols.size());
+  run_with_big_stack([&]() {
+    r.tree = build_call_tree(trace.threads);
+    r.agg = aggregate(r.tree, (uint32_t)trace.symbols.size());
+  });
   r.top = opt.top;
   uint32_t n = (uint32_t)r.agg.funcs.size();
   r.keep.assign(n, true);
@@ -52,20 +72,19 @@ static void write_funcs(JsonWriter &w, const AnalysisResult &r, const Trace &tra
   w.end_array();
 }
 
-static void write_agg(JsonWriter &w, const AggNode &n, const Trace &trace) {
+static void write_agg(JsonWriter &w, const AggNode &n) {
   w.begin_object();
   w.key("fn"); w.number((uint64_t)n.fn_id);
-  w.key("name"); w.str(trace.name_of(n.fn_id));
   w.key("calls"); w.number(n.calls);
   w.key("total_ns"); w.number(n.total_ns);
   w.key("self_ns"); w.number(n.self_ns);
   w.key("children"); w.begin_array();
-  for (const AggNode &c : n.children) write_agg(w, c, trace);
+  for (const AggNode &c : n.children) write_agg(w, c);
   w.end_array();
   w.end_object();
 }
 
-std::string to_json(const AnalysisResult &r, const Trace &trace) {
+static std::string to_json_impl(const AnalysisResult &r, const Trace &trace) {
   JsonWriter w;
   w.begin_object();
   w.key("trace"); w.begin_object();
@@ -96,7 +115,7 @@ std::string to_json(const AnalysisResult &r, const Trace &trace) {
   w.end_array();
 
   w.key("aggregated"); w.begin_array();
-  for (const AggNode &n : r.agg.aggregated) write_agg(w, n, trace);
+  for (const AggNode &n : r.agg.aggregated) write_agg(w, n);
   w.end_array();
 
   std::map<uint32_t, std::vector<uint32_t>> roots_by_tid;
@@ -123,7 +142,6 @@ std::string to_json(const AnalysisResult &r, const Trace &trace) {
     w.begin_object();
     w.key("id"); w.number((uint64_t)in.id);
     w.key("fn"); w.number((uint64_t)in.fn_id);
-    w.key("name"); w.str(trace.name_of(in.fn_id));
     w.key("tid"); w.number((uint64_t)in.tid);
     w.key("depth"); w.number((uint64_t)in.depth);
     w.key("parent"); w.number((int64_t)in.parent);
@@ -139,6 +157,12 @@ std::string to_json(const AnalysisResult &r, const Trace &trace) {
 
   w.end_object();
   return w.str_out();
+}
+
+std::string to_json(const AnalysisResult &r, const Trace &trace) {
+  std::string out;
+  run_with_big_stack([&]() { out = to_json_impl(r, trace); });
+  return out;
 }
 
 static std::string fmt_ns(uint64_t ns) {

@@ -3,6 +3,7 @@
 #include "calltree.hpp"
 #include "aggregate.hpp"
 #include "analysis.hpp"
+#include <utility>
 
 using namespace ct;
 static ThreadEvents mk(uint32_t tid, std::initializer_list<TraceEvent> evs) {
@@ -50,6 +51,23 @@ int main() {
   std::string txt3 = render_text(analyze(tr, top), tr);
   CHECK(txt3.find("main") != std::string::npos);
   CHECK(txt3.find("leaf") == std::string::npos);
+
+  const uint32_t kNest = 50000;
+  ThreadEvents deep; deep.tid = 9;
+  uint64_t ts = 0;
+  for (uint32_t i = 0; i < kNest; i++) deep.events.push_back(ev(0, 0, ts++));
+  for (uint32_t i = 0; i < kNest; i++) deep.events.push_back(ev(1, 0, ts++));
+  Trace dtr;
+  dtr.pid = 1;
+  dtr.total_events = 2 * kNest;
+  dtr.symbols.push_back(SymbolInfo{0, 0, "deep"});
+  dtr.threads.push_back(std::move(deep));
+  AnalysisResult rd = analyze(dtr, opt);
+  CHECK_EQ_LONG((long)rd.tree.instances.size(), (long)kNest);
+  CHECK_EQ_LONG(rd.tree.unbalanced_enter, 0);
+  std::string jd = to_json(rd, dtr);
+  CHECK(!jd.empty());
+  CHECK(jd.find("\"instances\"") != std::string::npos);
 
   if (fails) fprintf(stderr, "%d checks failed\n", fails);
   return fails ? 1 : 0;

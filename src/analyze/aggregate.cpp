@@ -1,9 +1,20 @@
 #include "aggregate.hpp"
 #include <functional>
 #include <map>
+#include <unordered_map>
 #include <utility>
 
 namespace ct {
+
+AggNode::~AggNode() {
+  std::vector<AggNode> pending = std::move(children);
+  children.clear();
+  while (!pending.empty()) {
+    AggNode n = std::move(pending.back());
+    pending.pop_back();
+    for (AggNode &c : n.children) pending.push_back(std::move(c));
+  }
+}
 
 const Edge *Analysis::find_edge(uint32_t caller, uint32_t callee) const {
   for (const Edge &e : edges)
@@ -11,7 +22,7 @@ const Edge *Analysis::find_edge(uint32_t caller, uint32_t callee) const {
   return nullptr;
 }
 
-static void merge_child(AggNode &parent, const AggNode &child) {
+static void merge_child(AggNode &parent, AggNode child) {
   for (AggNode &c : parent.children) {
     if (c.fn_id == child.fn_id) {
       c.calls += child.calls;
@@ -21,26 +32,75 @@ static void merge_child(AggNode &parent, const AggNode &child) {
       return;
     }
   }
-  parent.children.push_back(child);
+  parent.children.push_back(std::move(child));
 }
 
 static void mark_recursive(std::vector<Edge> &edges) {
-  std::map<uint32_t, std::vector<uint32_t>> adj;
-  for (const Edge &e : edges) adj[e.caller].push_back(e.callee);
+  std::unordered_map<uint32_t, std::vector<uint32_t>> adj;
+  for (const Edge &e : edges) {
+    adj[e.caller].push_back(e.callee);
+    adj[e.callee];
+  }
+
+  std::unordered_map<uint32_t, int> index, low, comp;
+  std::unordered_map<uint32_t, bool> on_stack;
+  std::vector<uint32_t> stk;
+  int idx = 0;
+  int ncomp = 0;
+
+  struct Frame { uint32_t v; size_t ei; };
+  for (const auto &kv : adj) {
+    uint32_t s = kv.first;
+    if (index.count(s)) continue;
+    std::vector<Frame> work;
+    index[s] = low[s] = idx++;
+    stk.push_back(s);
+    on_stack[s] = true;
+    work.push_back(Frame{s, 0});
+    while (!work.empty()) {
+      Frame &fr = work.back();
+      uint32_t v = fr.v;
+      const std::vector<uint32_t> &neigh = adj[v];
+      if (fr.ei < neigh.size()) {
+        uint32_t w = neigh[fr.ei++];
+        if (!index.count(w)) {
+          index[w] = low[w] = idx++;
+          stk.push_back(w);
+          on_stack[w] = true;
+          work.push_back(Frame{w, 0});
+        } else if (on_stack[w] && index[w] < low[v]) {
+          low[v] = index[w];
+        }
+      } else {
+        if (low[v] == index[v]) {
+          uint32_t w;
+          do {
+            w = stk.back();
+            stk.pop_back();
+            on_stack[w] = false;
+            comp[w] = ncomp;
+          } while (w != v);
+          ncomp++;
+        }
+        work.pop_back();
+        if (!work.empty()) {
+          uint32_t p = work.back().v;
+          if (low[v] < low[p]) low[p] = low[v];
+        }
+      }
+    }
+  }
+
+  std::vector<uint32_t> comp_size((size_t)ncomp, 0);
+  for (const auto &kv : comp) comp_size[(size_t)kv.second]++;
+
   for (Edge &e : edges) {
     if (e.caller == e.callee) { e.recursive = true; continue; }
-    std::vector<uint32_t> stack{e.callee};
-    std::map<uint32_t, bool> seen;
-    bool found = false;
-    while (!stack.empty() && !found) {
-      uint32_t cur = stack.back(); stack.pop_back();
-      if (cur == e.caller) { found = true; break; }
-      if (seen[cur]) continue;
-      seen[cur] = true;
-      auto it = adj.find(cur);
-      if (it != adj.end()) for (uint32_t n : it->second) stack.push_back(n);
-    }
-    e.recursive = found;
+    auto ci = comp.find(e.caller);
+    auto cj = comp.find(e.callee);
+    e.recursive = ci != comp.end() && cj != comp.end() &&
+                  ci->second == cj->second &&
+                  comp_size[(size_t)ci->second] > 1;
   }
 }
 
