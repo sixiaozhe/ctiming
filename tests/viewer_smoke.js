@@ -1,8 +1,13 @@
 "use strict";
 
 const fs = require("fs");
-const path = require("path");
 const vm = require("vm");
+
+const reportPath = process.argv[2];
+if (!reportPath) {
+  console.error("usage: node viewer_smoke.js <report.html>");
+  process.exit(2);
+}
 
 let failures = 0;
 function check(cond, msg) {
@@ -101,6 +106,19 @@ function walk(node, fn) {
 }
 
 const body = makeElement("body");
+const view = makeElement("main");
+view.setAttribute("id", "view");
+const nav = makeElement("nav");
+nav.setAttribute("id", "nav");
+const meta = makeElement("span");
+meta.setAttribute("id", "meta");
+const dataEl = makeElement("script");
+dataEl.setAttribute("id", "ct-data");
+dataEl.setAttribute("type", "application/json");
+body.appendChild(meta);
+body.appendChild(nav);
+body.appendChild(view);
+body.appendChild(dataEl);
 
 const document = {
   body: body,
@@ -124,10 +142,6 @@ const document = {
   },
 };
 
-const view = makeElement("main");
-view.setAttribute("id", "view");
-body.appendChild(view);
-
 function collect(tag) {
   const out = [];
   walk(view, function (n) {
@@ -144,56 +158,66 @@ function collectByClass(cls) {
   return out;
 }
 
-const viewerDir = path.join(__dirname, "..", "viewer");
-const sources = ["core.js", "overview.js", "flame.js", "graph.js", "trace.js", "callers.js"];
-const sandbox = { console: console, document: document, window: {} };
-vm.createContext(sandbox);
-for (const f of sources) {
-  const code = fs.readFileSync(path.join(viewerDir, f), "utf8");
-  vm.runInContext(code, sandbox, { filename: f });
-}
-
-const CT = sandbox.window.CT;
-check(CT && typeof CT.init === "function", "CT.init is defined");
-if (!CT || typeof CT.init !== "function") {
-  console.error("cannot load viewer sources from " + viewerDir);
+let html;
+try {
+  html = fs.readFileSync(reportPath, "utf8");
+} catch (e) {
+  console.error("cannot read " + reportPath + ": " + e.message);
   process.exit(1);
 }
 
-const data = {
-  trace: {
-    exe: "smoke", pid: 1, flags: 0, modules: 1, symbols: 2, threads: 1,
-    total_events: 4, dropped: 0, unbalanced_enter: 0, orphan_exit: 0,
-  },
-  functions: [
-    { id: 0, name: "main", module: 0, offset: 0, calls: 2, total_ns: 100, self_ns: 30, min_ns: 40, max_ns: 60, kept: true },
-    { id: 1, name: "leaf", module: 0, offset: 0, calls: 1, total_ns: 80, self_ns: 80, min_ns: 80, max_ns: 80, kept: true },
-  ],
-  call_graph: [
-    { caller: 0, callee: 1, count: 1, total_ns: 80, recursive: false },
-  ],
-  aggregated: [
-    {
-      fn: 0, calls: 1, total_ns: 100, self_ns: 20,
-      children: [
-        {
-          fn: 1, calls: 1, total_ns: 80, self_ns: 20,
-          children: [
-            { fn: 0, calls: 1, total_ns: 60, self_ns: 60, children: [] },
-          ],
-        },
-      ],
-    },
-  ],
-  threads: [{ tid: 1, roots: [0] }],
-  instances: [
-    { id: 0, fn: 0, tid: 1, depth: 0, parent: -1, start_ns: 0, end_ns: 100, self_ns: 20, children: [1] },
-    { id: 1, fn: 1, tid: 1, depth: 1, parent: 0, start_ns: 5, end_ns: 80, self_ns: 60, children: [] },
-  ],
-};
+const scriptRe = /<script([^>]*)>([\s\S]*?)<\/script>/g;
+const blocks = [];
+let rawData = null;
+let m;
+while ((m = scriptRe.exec(html)) !== null) {
+  const attrs = m[1] || "";
+  if (/id="ct-data"/.test(attrs) || /application\/json/.test(attrs)) {
+    rawData = m[2];
+    continue;
+  }
+  blocks.push(m[2]);
+}
 
-CT.init(data);
-check(CT.tabs.length === 5, "expected 5 tabs, got " + CT.tabs.length);
+check(rawData != null, "data script not found in report");
+check(blocks.length >= 5, "expected viewer script blocks, got " + blocks.length);
+if (rawData == null) {
+  console.error("cannot continue without embedded data");
+  process.exit(1);
+}
+
+let data = null;
+try {
+  data = JSON.parse(rawData);
+} catch (e) {
+  check(false, "embedded data is not valid JSON: " + e.message);
+}
+
+dataEl.textContent = rawData;
+
+const sandbox = { console: console, document: document, window: {} };
+vm.createContext(sandbox);
+for (let i = 0; i < blocks.length; i++) {
+  try {
+    vm.runInContext(blocks[i], sandbox, { filename: "inline-" + i + ".js" });
+  } catch (e) {
+    failures++;
+    console.error("FAIL: inline script " + i + " threw: " + (e && e.stack ? e.stack : e));
+  }
+}
+
+const CT = sandbox.window.CT;
+check(CT && typeof CT.init === "function", "CT.init is defined by report scripts");
+if (!CT || typeof CT.init !== "function") {
+  console.error("viewer did not initialize from " + reportPath);
+  process.exit(1);
+}
+
+const selfInit = !!CT.data;
+check(selfInit, "report did not self-initialize (CT.init not called; missing main script?)");
+if (!selfInit && data) CT.init(data);
+
+check(CT.tabs.length >= 5, "expected >=5 tabs, got " + CT.tabs.length);
 
 for (let i = 0; i < CT.tabs.length; i++) {
   try {
@@ -213,22 +237,39 @@ function showTabById(id) {
 
 check(showTabById("flame"), "flame tab registered");
 const rects = collect("rect");
-check(rects.length === 3, "expected 3 flame frames, got " + rects.length);
-if (rects.length >= 2) rects[1]._fire("click");
-const crumbs = collectByClass("crumb");
-check(crumbs.length === 1, "expected one breadcrumb, got " + crumbs.length);
-if (crumbs.length) {
-  const text = crumbs[0].textContent;
-  check(text.indexOf("main") >= 0, "breadcrumb lost ancestor main: " + text);
-  check(text.indexOf("leaf") >= 0, "breadcrumb missing current leaf: " + text);
+check(rects.length >= 3, "expected >=3 flame frames, got " + rects.length);
+const aggRoot = CT.data && CT.data.aggregated && CT.data.aggregated[0];
+const drillId = aggRoot && aggRoot.children && aggRoot.children.length ? aggRoot.children[0].fn : null;
+if (drillId !== null && rects.length >= 2) {
+  rects[1]._fire("click");
+  const crumbs = collectByClass("crumb");
+  check(crumbs.length >= 1, "expected breadcrumb after drill-down");
+  if (crumbs.length) {
+    const text = crumbs[crumbs.length - 1].textContent;
+    check(text.indexOf(CT.name(aggRoot.fn)) >= 0, "breadcrumb lost ancestor " + CT.name(aggRoot.fn) + ": " + text);
+    check(text.indexOf(CT.name(drillId)) >= 0, "breadcrumb missing drilled " + CT.name(drillId) + ": " + text);
+  }
+} else {
+  check(rects.length >= 1, "expected at least one flame frame");
 }
 
 check(showTabById("trace"), "trace tab registered");
+const inputs = collect("input");
+check(inputs.length >= 1, "trace search input missing");
+const search = inputs[0];
+check(collectByClass("fill").length >= 1, "expected trace bars on first render");
+if (search) {
+  search.value = "zzz-no-such-function-name";
+  if (typeof search.oninput === "function") search.oninput();
+  check(collectByClass("fill").length === 0, "expected no trace bars after no-match filter");
+  search.value = "";
+  if (typeof search.oninput === "function") search.oninput();
+}
 const fills = collectByClass("fill");
-check(fills.length >= 1, "expected trace bars, got " + fills.length);
+check(fills.length >= 1, "waterfall did not recover after clearing the filter");
 for (const f of fills) {
-  check(typeof f.style.left === "string" && f.style.left.endsWith("%"), "trace bar left not %: " + f.style.left);
-  check(typeof f.style.width === "string" && f.style.width.endsWith("%"), "trace bar width not %: " + f.style.width);
+  check(typeof f.style.left === "string" && f.style.left.endsWith("%"), "trace bar left not %-based: " + f.style.left);
+  check(typeof f.style.width === "string" && f.style.width.endsWith("%"), "trace bar width not %-based: " + f.style.width);
 }
 
 if (failures) {

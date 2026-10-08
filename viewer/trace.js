@@ -79,7 +79,7 @@
     function refresh() {
       const q = search.value.trim().toLowerCase();
       const items = q ? all.filter(function (i) { return CT.name(i.fn).toLowerCase().indexOf(q) >= 0; }) : all;
-      if (selected && items.indexOf(selected) < 0) selected = items.length ? items[0] : null;
+      if (!selected || items.indexOf(selected) < 0) selected = items.length ? items[0] : null;
       renderList(list, items, pick);
       CT.clear(right);
       if (selected) renderWaterfall(right, selected);

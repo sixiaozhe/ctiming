@@ -98,13 +98,15 @@ int main(int argc, char **argv) {
   opt.has_include = has_include; opt.has_exclude = has_exclude;
   opt.min_total_ns = min_total; opt.top = top;
   ct::AnalysisResult r = ct::analyze(trace, opt);
+  std::string js;
+  if (!html_path.empty() || !json_path.empty()) js = ct::to_json(r, trace);
   bool wrote = false;
   if (!html_path.empty()) {
-    if (write_file(html_path, ct::to_html(ct::to_json(r, trace))) != 0) return 1;
+    if (write_file(html_path, ct::to_html(js)) != 0) return 1;
     wrote = true;
   }
   if (!json_path.empty()) {
-    if (write_file(json_path, ct::to_json(r, trace)) != 0) return 1;
+    if (write_file(json_path, js) != 0) return 1;
     wrote = true;
   }
   if (!wrote) {
