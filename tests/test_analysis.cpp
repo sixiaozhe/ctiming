@@ -40,6 +40,11 @@ int main() {
   CHECK(txt2.find("leaf") != std::string::npos);
   CHECK(txt2.find("main") == std::string::npos);
 
+  Options top; top.top = 1;
+  std::string txt3 = render_text(analyze(tr, top), tr);
+  CHECK(txt3.find("main") != std::string::npos);
+  CHECK(txt3.find("leaf") == std::string::npos);
+
   if (fails) fprintf(stderr, "%d checks failed\n", fails);
   return fails ? 1 : 0;
 }

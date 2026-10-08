@@ -20,6 +20,7 @@ struct AnalysisResult {
   CallTree tree;
   Analysis agg;
   std::vector<bool> keep;
+  int top = 0;
 };
 
 AnalysisResult analyze(const Trace &trace, const Options &opt);

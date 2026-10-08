@@ -12,6 +12,7 @@ AnalysisResult analyze(const Trace &trace, const Options &opt) {
   AnalysisResult r;
   r.tree = build_call_tree(trace.threads);
   r.agg = aggregate(r.tree, (uint32_t)trace.symbols.size());
+  r.top = opt.top;
   uint32_t n = (uint32_t)r.agg.funcs.size();
   r.keep.assign(n, true);
   for (uint32_t i = 0; i < n; i++) {
@@ -146,6 +147,7 @@ std::string render_text(const AnalysisResult &r, const Trace &trace) {
   std::sort(rows.begin(), rows.end(), [](const FuncStats *a, const FuncStats *b) {
     return a->total_ns > b->total_ns;
   });
+  if (r.top > 0 && (size_t)r.top < rows.size()) rows.resize((size_t)r.top);
   std::ostringstream os;
   os << "exe: " << trace.exe << "\n";
   os << "threads: " << trace.threads.size() << "  total_events: " << trace.total_events
