@@ -41,6 +41,7 @@
   }
 
   function onDown(e) {
+    suppressClick = false;
     if (zoom <= 1) return;
     drag = { x: e.clientX, pan: panX, moved: false };
   }

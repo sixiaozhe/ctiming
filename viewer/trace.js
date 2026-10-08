@@ -4,6 +4,7 @@
   let mode = "roots";
   let thread = "all";
   let sortKey = "dur";
+  const MAX_ROWS = 500;
 
   function dur(i) { return i.end_ns - i.start_ns; }
 
@@ -123,7 +124,9 @@
       items = items.slice().sort(compare);
       CT.traceItems = items;
       if (!selected || items.indexOf(selected) < 0) selected = items.length ? items[0] : null;
-      renderList(list, items, pick);
+      const shown = items.length > MAX_ROWS ? items.slice(0, MAX_ROWS) : items;
+      renderList(list, shown, pick);
+      if (items.length > MAX_ROWS) list.appendChild(CT.el("p", { class: "muted", text: "仅显示前 " + MAX_ROWS + " 条，请用函数名/线程过滤。" }));
       CT.clear(right);
       if (selected) renderWaterfall(right, selected);
       else right.appendChild(CT.el("p", { class: "muted", text: "无匹配的调用实例。" }));
