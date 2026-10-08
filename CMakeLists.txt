@@ -34,12 +34,28 @@ function(ct_add_test name file)
   add_test(NAME ${name} COMMAND ${name})
 endfunction()
 
+add_library(ctiming_analysis STATIC
+  src/analyze/event.cpp)
+target_include_directories(ctiming_analysis PUBLIC src/analyze PRIVATE src)
+target_compile_options(ctiming_analysis PRIVATE -Wall -Wextra)
+target_link_libraries(ctiming_analysis PUBLIC ctiming)
+
+function(ct_add_analysis_test name file)
+  add_executable(${name} ${file})
+  target_include_directories(${name} PRIVATE src src/analyze tests)
+  target_compile_options(${name} PRIVATE -Wall -Wextra)
+  target_link_libraries(${name} PRIVATE ctiming_analysis)
+  add_test(NAME ${name} COMMAND ${name})
+endfunction()
+
 ct_add_test(test_smoke tests/test_smoke.c)
 ct_add_test(test_glob tests/test_glob.c)
 ct_add_test(test_buffer tests/test_buffer.c)
 ct_add_test(test_trace tests/test_trace.c)
 ct_add_test(test_symbols tests/test_symbols.c)
 ct_add_test(test_config tests/test_config.c)
+
+ct_add_analysis_test(test_event tests/test_event.cpp)
 
 add_executable(example_single examples/example_single.c)
 target_compile_options(example_single PRIVATE -finstrument-functions -g -O0)
