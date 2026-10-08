@@ -110,6 +110,11 @@ add_test(
   COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration_analyze.sh
           $<TARGET_FILE:example_single> $<TARGET_FILE:ctiming-analyze>)
 
+add_test(
+  NAME integration_report
+  COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration_report.sh
+          $<TARGET_FILE:example_single> $<TARGET_FILE:ctiming-analyze>)
+
 add_executable(example_threads examples/example_threads.c)
 target_compile_options(example_threads PRIVATE -finstrument-functions -g -O0 -pthread)
 target_link_libraries(example_threads PRIVATE ctiming)

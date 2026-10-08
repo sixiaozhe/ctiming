@@ -1,5 +1,6 @@
 #include "event.hpp"
 #include "analysis.hpp"
+#include "html.hpp"
 #include <cerrno>
 #include <climits>
 #include <cstdio>
@@ -7,7 +8,7 @@
 #include <string>
 
 static void usage(const char *argv0) {
-  std::fprintf(stderr, "usage: %s <trace.ctrace> [--json FILE] [--include GLOB] [--exclude GLOB] [--min-total NS] [--top N]\n", argv0);
+  std::fprintf(stderr, "usage: %s <trace.ctrace> [--json FILE] [-o FILE|--html FILE] [--include GLOB] [--exclude GLOB] [--min-total NS] [--top N]\n", argv0);
 }
 
 static bool parse_u64(const char *s, uint64_t &out) {
@@ -37,19 +38,34 @@ static bool missing_value(const char *argv0, const std::string &a) {
   return false;
 }
 
+static int write_file(const std::string &path, const std::string &data) {
+  FILE *f = std::fopen(path.c_str(), "wb");
+  if (!f) { std::fprintf(stderr, "cannot write %s\n", path.c_str()); return 1; }
+  size_t n = std::fwrite(data.data(), 1, data.size(), f);
+  int cr = std::fclose(f);
+  if (n != data.size() || cr != 0) {
+    std::fprintf(stderr, "cannot write %s\n", path.c_str());
+    return 1;
+  }
+  std::printf("wrote %s\n", path.c_str());
+  return 0;
+}
+
 int main(int argc, char **argv) {
-  std::string trace_path, json_path, include, exclude;
+  std::string trace_path, json_path, html_path, include, exclude;
   bool has_include = false, has_exclude = false;
   uint64_t min_total = 0;
   int top = 0;
   for (int i = 1; i < argc; i++) {
     std::string a = argv[i];
-    bool wants_value = (a == "--json" || a == "--include" || a == "--exclude" ||
+    bool wants_value = (a == "--json" || a == "-o" || a == "--html" ||
+                        a == "--include" || a == "--exclude" ||
                         a == "--min-total" || a == "--top");
     if (wants_value) {
       if (i + 1 >= argc || argv[i + 1][0] == '-') { missing_value(argv[0], a); return 2; }
       const char *v = argv[++i];
       if (a == "--json") { json_path = v; }
+      else if (a == "-o" || a == "--html") { html_path = v; }
       else if (a == "--include") { include = v; has_include = true; }
       else if (a == "--exclude") { exclude = v; has_exclude = true; }
       else if (a == "--min-total") {
@@ -82,18 +98,16 @@ int main(int argc, char **argv) {
   opt.has_include = has_include; opt.has_exclude = has_exclude;
   opt.min_total_ns = min_total; opt.top = top;
   ct::AnalysisResult r = ct::analyze(trace, opt);
+  bool wrote = false;
+  if (!html_path.empty()) {
+    if (write_file(html_path, ct::to_html(ct::to_json(r, trace))) != 0) return 1;
+    wrote = true;
+  }
   if (!json_path.empty()) {
-    std::string js = ct::to_json(r, trace);
-    FILE *f = std::fopen(json_path.c_str(), "wb");
-    if (!f) { std::fprintf(stderr, "cannot write %s\n", json_path.c_str()); return 1; }
-    size_t n = std::fwrite(js.data(), 1, js.size(), f);
-    int cr = std::fclose(f);
-    if (n != js.size() || cr != 0) {
-      std::fprintf(stderr, "cannot write %s\n", json_path.c_str());
-      return 1;
-    }
-    std::printf("wrote %s\n", json_path.c_str());
-  } else {
+    if (write_file(json_path, ct::to_json(r, trace)) != 0) return 1;
+    wrote = true;
+  }
+  if (!wrote) {
     std::fputs(ct::render_text(r, trace).c_str(), stdout);
   }
   return 0;
