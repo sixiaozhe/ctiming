@@ -106,6 +106,9 @@ function walk(node, fn) {
 }
 
 const body = makeElement("body");
+const header = makeElement("header");
+header.setAttribute("id", "header");
+body.appendChild(header);
 const view = makeElement("main");
 view.setAttribute("id", "view");
 const nav = makeElement("nav");
@@ -122,6 +125,13 @@ body.appendChild(dataEl);
 
 const document = {
   body: body,
+  _listeners: {},
+  addEventListener: function (type, fn) {
+    (this._listeners[type] = this._listeners[type] || []).push(fn);
+  },
+  _fire: function (type, evt) {
+    (this._listeners[type] || []).forEach(function (fn) { fn(evt || {}); });
+  },
   createElement: function (tag) { return makeElement(tag); },
   createElementNS: function (ns, tag) { return makeElement(tag); },
   createTextNode: function (text) { return makeText(text); },
@@ -140,19 +150,31 @@ const document = {
     });
     return out;
   },
+  querySelector: function (sel) {
+    const all = document.querySelectorAll(sel);
+    return all.length ? all[0] : null;
+  },
 };
 
 function collect(tag) {
+  return collectIn(view, tag);
+}
+
+function collectIn(node, tag) {
   const out = [];
-  walk(view, function (n) {
+  walk(node, function (n) {
     if (n.nodeType === 1 && n.tagName === String(tag).toUpperCase()) out.push(n);
   });
   return out;
 }
 
 function collectByClass(cls) {
+  return collectClassIn(view, cls);
+}
+
+function collectClassIn(node, cls) {
   const out = [];
-  walk(view, function (n) {
+  walk(node, function (n) {
     if (n.nodeType === 1 && n.classList && n.classList.contains(cls)) out.push(n);
   });
   return out;
@@ -236,40 +258,158 @@ function showTabById(id) {
 }
 
 check(showTabById("flame"), "flame tab registered");
-const rects = collect("rect");
+function flameRects() { return collect("rect"); }
+function flameCrumb() {
+  const c = collectByClass("crumb");
+  return c.length ? c[c.length - 1].textContent : "";
+}
+function flameActive() {
+  return CT.tabs[CT.state.active] && CT.tabs[CT.state.active].id === "flame";
+}
+const rects = flameRects();
 check(rects.length >= 3, "expected >=3 flame frames, got " + rects.length);
-const aggRoot = CT.data && CT.data.aggregated && CT.data.aggregated[0];
-const drillId = aggRoot && aggRoot.children && aggRoot.children.length ? aggRoot.children[0].fn : null;
-if (drillId !== null && rects.length >= 2) {
-  rects[1]._fire("click");
-  const crumbs = collectByClass("crumb");
-  check(crumbs.length >= 1, "expected breadcrumb after drill-down");
-  if (crumbs.length) {
-    const text = crumbs[crumbs.length - 1].textContent;
-    check(text.indexOf(CT.name(aggRoot.fn)) >= 0, "breadcrumb lost ancestor " + CT.name(aggRoot.fn) + ": " + text);
-    check(text.indexOf(CT.name(drillId)) >= 0, "breadcrumb missing drilled " + CT.name(drillId) + ": " + text);
+let drilled = false;
+if (rects.length >= 2) {
+  const rootNames = CT.data.aggregated.map(function (r) { return CT.name(r.fn); });
+  let t1 = "";
+  let rootName = null;
+  for (let i = 0; i < rects.length && rootName == null; i++) {
+    const rs = flameRects();
+    if (i >= rs.length) break;
+    rs[i]._fire("click");
+    if (flameActive()) {
+      const t = flameCrumb();
+      const nm = rootNames.filter(function (n) { return t.indexOf(n) >= 0; })[0];
+      if (nm != null) { t1 = t; rootName = nm; }
+      else showTabById("flame");
+    } else {
+      showTabById("flame");
+    }
   }
-} else {
-  check(rects.length >= 1, "expected at least one flame frame");
+  check(rootName != null, "could not find a drillable flame frame");
+  if (rootName != null) {
+    const rects2 = flameRects();
+    if (rects2.length >= 2) {
+      rects2[1]._fire("click");
+      if (flameActive()) {
+        const t2 = flameCrumb();
+        check(t2.indexOf(rootName) >= 0, "breadcrumb lost ancestor after child drill: " + t2);
+        check(t2.length > t1.length, "breadcrumb did not extend after child drill: " + t2);
+      } else {
+        showTabById("flame");
+        const t2 = flameCrumb();
+        check(t2.indexOf(rootName) >= 0, "breadcrumb lost root after leaf child navigation: " + t2);
+      }
+      drilled = true;
+    }
+  }
+}
+if (!drilled) check(flameRects().length >= 1, "expected at least one flame frame");
+
+const flameSvgs = collect("svg");
+check(flameSvgs.length >= 1, "flame svg missing");
+if (flameSvgs.length) {
+  const svg = flameSvgs[flameSvgs.length - 1];
+  const before = svg.getAttribute("viewBox");
+  svg._fire("wheel", { deltaY: -1, clientX: 0, preventDefault: function () {} });
+  const after = svg.getAttribute("viewBox");
+  check(typeof before === "string" && typeof after === "string" && before !== after,
+    "flame wheel zoom did not change viewBox (" + before + " -> " + after + ")");
 }
 
 check(showTabById("trace"), "trace tab registered");
-const inputs = collect("input");
-check(inputs.length >= 1, "trace search input missing");
-const search = inputs[0];
+const traceSearch = document.getElementById("trace-search");
+check(traceSearch != null, "trace search input missing");
+function traceItems() {
+  const list = document.getElementById("trace-list");
+  return list ? collectClassIn(list, "item") : [];
+}
+check(traceItems().length >= 1, "expected root trace items on first render");
 check(collectByClass("fill").length >= 1, "expected trace bars on first render");
-if (search) {
-  search.value = "zzz-no-such-function-name";
-  if (typeof search.oninput === "function") search.oninput();
+if (traceSearch) {
+  traceSearch.value = "zzz-no-such-function-name";
+  if (typeof traceSearch.oninput === "function") traceSearch.oninput();
+  check(traceItems().length === 0, "expected no trace items after no-match filter");
   check(collectByClass("fill").length === 0, "expected no trace bars after no-match filter");
-  search.value = "";
-  if (typeof search.oninput === "function") search.oninput();
+  traceSearch.value = "";
+  if (typeof traceSearch.oninput === "function") traceSearch.oninput();
 }
 const fills = collectByClass("fill");
 check(fills.length >= 1, "waterfall did not recover after clearing the filter");
 for (const f of fills) {
   check(typeof f.style.left === "string" && f.style.left.endsWith("%"), "trace bar left not %-based: " + f.style.left);
   check(typeof f.style.width === "string" && f.style.width.endsWith("%"), "trace bar width not %-based: " + f.style.width);
+}
+
+const rootsCount = traceItems().length;
+const allBtn = document.getElementById("trace-mode-all");
+const rootsBtn = document.getElementById("trace-mode-roots");
+check(allBtn != null && rootsBtn != null, "trace mode buttons missing");
+if (allBtn && rootsBtn) {
+  allBtn.onclick();
+  const allCount = traceItems().length;
+  check(allCount >= rootsCount, "全部调用 should list at least as many items as 顶层调用");
+  if (CT.data.instances.length > rootsCount) {
+    check(allCount === CT.data.instances.length, "全部调用 should list every instance (" + allCount + " vs " + CT.data.instances.length + ")");
+  }
+  rootsBtn.onclick();
+  check(traceItems().length === rootsCount, "顶层调用 should restore the root list");
+  allBtn.onclick();
+}
+
+const threadSel = document.getElementById("trace-thread");
+check(threadSel != null, "trace thread select missing");
+if (threadSel && CT.data.threads.length) {
+  const tid = CT.data.threads[0].tid;
+  threadSel.value = String(tid);
+  threadSel.onchange();
+  const expected = CT.data.instances.filter(function (i) { return i.tid === tid; }).length;
+  check(traceItems().length === expected, "thread filter mismatch: " + traceItems().length + " vs " + expected);
+  threadSel.value = "all";
+  threadSel.onchange();
+  check(traceItems().length === CT.data.instances.length, "全部线程 should restore every instance");
+}
+
+const sortSel = document.getElementById("trace-sort");
+check(sortSel != null, "trace sort select missing");
+if (sortSel) {
+  sortSel.value = "name";
+  sortSel.onchange();
+  const names = traceItems().map(function (it) { return it.childNodes[0].textContent; });
+  let sortedByName = true;
+  for (let i = 1; i < names.length; i++) {
+    if (names[i - 1].localeCompare(names[i]) > 0) { sortedByName = false; break; }
+  }
+  check(sortedByName, "trace list not sorted by 按函数名");
+  sortSel.value = "dur";
+  sortSel.onchange();
+}
+
+const pickable = traceItems();
+check(pickable.length >= 1, "expected trace items before arbitrary selection");
+if (pickable.length) {
+  const arbitrary = pickable[pickable.length - 1];
+  arbitrary.onclick();
+  check(collectByClass("fill").length >= 1, "waterfall did not render for arbitrary selected instance");
+}
+
+const gsearch = document.getElementById("global-search");
+check(gsearch != null, "global search input missing");
+const searchable = CT.data.functions.filter(function (f) { return f.calls > 0; });
+check(searchable.length >= 1, "no callable function available for global search");
+if (gsearch && searchable.length) {
+  const sample = searchable[0];
+  const q = sample.name.slice(0, Math.max(1, Math.min(3, sample.name.length))).toLowerCase();
+  gsearch.value = q;
+  if (typeof gsearch.oninput === "function") gsearch.oninput();
+  const sugg = collectClassIn(header, "item");
+  check(sugg.length >= 1, "global search produced no suggestions for '" + q + "'");
+  const activeBefore = CT.tabs[CT.state.active] && CT.tabs[CT.state.active].id;
+  if (sugg.length) sugg[0].onclick();
+  const activeAfter = CT.tabs[CT.state.active] && CT.tabs[CT.state.active].id;
+  check(activeAfter === "callers", "global search did not open callers tab (was " + activeBefore + ")");
+  const callersBody = document.getElementById("callers-body");
+  check(callersBody != null && callersBody.childNodes.length >= 1, "callers tab did not render after global search");
 }
 
 if (failures) {

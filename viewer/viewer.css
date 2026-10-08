@@ -35,3 +35,9 @@ input[type=search]{background:#0b101b;border:1px solid var(--line);color:var(--f
 .list .item{padding:6px 10px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;justify-content:space-between;gap:8px}
 .list .item:hover{background:#1d2740}
 .list .item.sel{background:#22304d}
+.controls{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.controls button{background:transparent;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px}
+.controls button.active{background:var(--accent);color:#08101f;font-weight:600}
+select{background:#0b101b;border:1px solid var(--line);color:var(--fg);border-radius:6px;padding:5px 8px;font-size:13px}
+.globalsearch{position:relative;margin-left:auto}
+.gs-list{position:absolute;right:0;top:34px;width:320px;max-height:50vh;overflow:auto;z-index:30;display:none;box-shadow:0 8px 24px rgba(0,0,0,.45)}

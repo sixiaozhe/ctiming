@@ -1,8 +1,14 @@
 (function () {
   const CT = window.CT;
   let selected = null;
+  let mode = "roots";
+  let thread = "all";
+  let sortKey = "dur";
 
-  function rootInstances() {
+  function dur(i) { return i.end_ns - i.start_ns; }
+
+  function source() {
+    if (mode === "all") return CT.data.instances;
     const rows = [];
     for (const th of CT.data.threads) {
       for (const id of th.roots) {
@@ -10,16 +16,24 @@
         if (i) rows.push(i);
       }
     }
-    return rows.sort(function (a, b) { return (b.end_ns - b.start_ns) - (a.end_ns - a.start_ns); });
+    return rows;
+  }
+
+  function compare(a, b) {
+    if (sortKey === "name") {
+      const c = CT.name(a.fn).localeCompare(CT.name(b.fn));
+      return c !== 0 ? c : a.start_ns - b.start_ns;
+    }
+    if (sortKey === "start") return a.start_ns - b.start_ns;
+    return dur(b) - dur(a);
   }
 
   function renderList(listEl, items, onPick) {
     CT.clear(listEl);
     for (const i of items) {
-      const dur = i.end_ns - i.start_ns;
       const item = CT.el("div", { class: "item" + (selected && selected.id === i.id ? " sel" : "") }, [
         CT.el("span", { text: CT.name(i.fn) }),
-        CT.el("span", { class: "muted", text: CT.fmtNs(dur) }),
+        CT.el("span", { class: "muted", text: CT.fmtNs(dur(i)) + " · tid " + i.tid }),
       ]);
       item.onclick = function () { onPick(i); };
       listEl.appendChild(item);
@@ -63,10 +77,36 @@
 
   function render(root) {
     CT.clear(root);
+    const rootsBtn = CT.el("button", { type: "button", id: "trace-mode-roots", class: mode === "roots" ? "active" : "", text: "顶层调用" });
+    const allBtn = CT.el("button", { type: "button", id: "trace-mode-all", class: mode === "all" ? "active" : "", text: "全部调用" });
+    function syncMode() {
+      rootsBtn.classList.toggle("active", mode === "roots");
+      allBtn.classList.toggle("active", mode === "all");
+    }
+    rootsBtn.onclick = function () { if (mode !== "roots") { mode = "roots"; syncMode(); refresh(); } };
+    allBtn.onclick = function () { if (mode !== "all") { mode = "all"; syncMode(); refresh(); } };
+
+    const threadSel = CT.el("select", { id: "trace-thread" });
+    threadSel.appendChild(CT.el("option", { value: "all", text: "全部线程" }));
+    for (const th of CT.data.threads) threadSel.appendChild(CT.el("option", { value: String(th.tid), text: "tid " + th.tid }));
+    threadSel.value = thread;
+    threadSel.onchange = function () { thread = threadSel.value; refresh(); };
+
+    const sortSel = CT.el("select", { id: "trace-sort" }, [
+      CT.el("option", { value: "dur", text: "按耗时" }),
+      CT.el("option", { value: "name", text: "按函数名" }),
+      CT.el("option", { value: "start", text: "按开始时间" }),
+    ]);
+    sortSel.value = sortKey;
+    sortSel.onchange = function () { sortKey = sortSel.value; refresh(); };
+
+    const controls = CT.el("div", { class: "controls" }, [rootsBtn, allBtn, threadSel, sortSel]);
+    root.appendChild(controls);
+
     const split = CT.el("div", { class: "split" });
     const left = CT.el("div");
-    const search = CT.el("input", { type: "search", placeholder: "按函数名过滤顶层调用…" });
-    const list = CT.el("div", { class: "list" });
+    const search = CT.el("input", { type: "search", id: "trace-search", placeholder: "按函数名过滤调用实例…" });
+    const list = CT.el("div", { class: "list", id: "trace-list" });
     left.appendChild(search);
     left.appendChild(list);
     const right = CT.el("div");
@@ -74,19 +114,21 @@
     split.appendChild(right);
     root.appendChild(split);
 
-    const all = rootInstances();
     function pick(i) { selected = i; refresh(); }
     function refresh() {
       const q = search.value.trim().toLowerCase();
-      const items = q ? all.filter(function (i) { return CT.name(i.fn).toLowerCase().indexOf(q) >= 0; }) : all;
+      let items = source();
+      if (thread !== "all") items = items.filter(function (i) { return String(i.tid) === thread; });
+      if (q) items = items.filter(function (i) { return CT.name(i.fn).toLowerCase().indexOf(q) >= 0; });
+      items = items.slice().sort(compare);
+      CT.traceItems = items;
       if (!selected || items.indexOf(selected) < 0) selected = items.length ? items[0] : null;
       renderList(list, items, pick);
       CT.clear(right);
       if (selected) renderWaterfall(right, selected);
-      else right.appendChild(CT.el("p", { class: "muted", text: "无匹配的顶层调用。" }));
+      else right.appendChild(CT.el("p", { class: "muted", text: "无匹配的调用实例。" }));
     }
     search.oninput = refresh;
-    if (all.length) selected = all[0];
     refresh();
   }
 

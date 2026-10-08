@@ -5,26 +5,27 @@
 ## 用法
 
 ```bash
-ctiming-analyze <trace.ctrace> [--json FILE] [--include GLOB] [--exclude GLOB] [--min-total NS] [--top N]
+ctiming-analyze <trace.ctrace> [--json FILE] [-o FILE|--html FILE] [--include GLOB] [--exclude GLOB] [--min-total NS] [--top N]
 ```
 
 | 参数 | 取值 | 默认 | 含义 |
 |------|------|------|------|
 | `<trace.ctrace>` | 路径，必填 | 无 | 待分析的 `.ctrace` 文件 |
 | `--json FILE` | 文件路径 | 未设置 | 写出全量自洽的 `analysis.json`；设置后**不再**打印文本摘要，仅打印一行 `wrote FILE` |
+| `-o FILE` / `--html FILE` | 文件路径 | 未设置 | 写出自包含 `report.html`；写出成功打印一行 `wrote FILE`，设置后**不再**打印文本摘要 |
 | `--include GLOB` | 逗号分隔的 glob 列表，如 `leaf*,mid*` | 未设置 | 文本摘要只保留函数名命中列表中任一项的函数 |
 | `--exclude GLOB` | 逗号分隔的 glob 列表 | 未设置 | 文本摘要丢弃命中列表中任一项的函数，优先级高于 `--include` |
 | `--min-total NS` | 非负整数（纳秒） | `0` | 文本摘要丢弃 `total_ns` 小于该值的函数；`0` 表示不过滤 |
 | `--top N` | 非负整数 | `0` | 文本摘要按 `total_ns` 降序只显示前 `N` 行；`0` 表示不限 |
 
-一次只接受一个 trace 路径，多余的普通参数会报错。`--include`/`--exclude` 接受**逗号分隔的 glob 列表**，命中列表中任一项即算命中；每项两侧的空白（空格/制表符）会被裁剪，空项不匹配任何名字。glob 支持 `*`（任意长度，含空）与 `?`（单字符），大小写敏感。该匹配与运行时 `CTIMING_INCLUDE`/`CTIMING_EXCLUDE` 使用同一套逻辑。
+`-o`/`--html` 与 `--json` **等价于两个独立输出**：可以只给其一，也可以同时给出而一次运行写出两种文件；给出任意一个后就不再打印文本摘要，两者都未给出时才打印文本摘要。一次只接受一个 trace 路径，多余的普通参数会报错。`--include`/`--exclude` 接受**逗号分隔的 glob 列表**，命中列表中任一项即算命中；每项两侧的空白（空格/制表符）会被裁剪，空项不匹配任何名字。glob 支持 `*`（任意长度，含空）与 `?`（单字符），大小写敏感。该匹配与运行时 `CTIMING_INCLUDE`/`CTIMING_EXCLUDE` 使用同一套逻辑。
 
 ### 退出码
 
 | 退出码 | 场景 |
 |--------|------|
 | `0` | 成功 |
-| `1` | 读取/解析 `.ctrace` 失败，或 `--json` 目标文件无法写入 |
+| `1` | 读取/解析 `.ctrace` 失败，或 `--json` / `-o`（`--html`）目标文件无法写入 |
 | `2` | 用法错误：缺少 trace 参数、未知选项、缺少选项值、参数过多，或 `--min-total`/`--top` 取值非法 |
 
 ## 过滤语义

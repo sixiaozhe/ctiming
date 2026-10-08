@@ -3,6 +3,62 @@
   let rootNode = null;
   let path = [];
   let reversed = false;
+  let zoom = 1;
+  let panX = 0;
+  let curSvg = null;
+  let curH = 0;
+  let curLabel = null;
+  let drag = null;
+  let suppressClick = false;
+  const W = 1000;
+
+  function clampPan() {
+    const vw = W / zoom;
+    if (panX < 0) panX = 0;
+    if (panX > W - vw) panX = W - vw;
+  }
+
+  function applyViewBox() {
+    if (!curSvg) return;
+    clampPan();
+    curSvg.setAttribute("viewBox", panX + " 0 " + (W / zoom) + " " + curH);
+    if (curLabel) curLabel.textContent = "缩放 ×" + zoom.toFixed(1);
+  }
+
+  function onWheel(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const rect = curSvg && curSvg.getBoundingClientRect ? curSvg.getBoundingClientRect() : null;
+    const vw = W / zoom;
+    let frac = 0.5;
+    if (rect && rect.width) frac = (e.clientX - rect.left) / rect.width;
+    if (frac < 0) frac = 0;
+    if (frac > 1) frac = 1;
+    const anchor = panX + frac * vw;
+    const factor = e && e.deltaY < 0 ? 1.2 : 1 / 1.2;
+    zoom = Math.max(1, Math.min(20, zoom * factor));
+    panX = anchor - frac * (W / zoom);
+    applyViewBox();
+  }
+
+  function onDown(e) {
+    if (zoom <= 1) return;
+    drag = { x: e.clientX, pan: panX, moved: false };
+  }
+
+  function onMove(e) {
+    if (!drag) return;
+    const rect = curSvg && curSvg.getBoundingClientRect ? curSvg.getBoundingClientRect() : null;
+    if (!rect || !rect.width) return;
+    const dx = e.clientX - drag.x;
+    if (dx > 3 || dx < -3) drag.moved = true;
+    panX = drag.pan - (dx / rect.width) * (W / zoom);
+    applyViewBox();
+  }
+
+  function onUp() {
+    suppressClick = !!(drag && drag.moved);
+    drag = null;
+  }
 
   function rootsArr() { return rootNode ? [rootNode] : CT.data.aggregated; }
 
@@ -63,6 +119,11 @@
     if (rootNode) { crumb.appendChild(document.createTextNode(" / ")); crumb.appendChild(CT.el("span", { text: CT.name(rootNode.fn) })); }
     crumb.appendChild(document.createTextNode("   "));
     crumb.appendChild(CT.el("button", { type: "button", text: reversed ? "自底向上 ✓" : "自底向上", onclick: function () { reversed = !reversed; render(root); } }));
+    crumb.appendChild(document.createTextNode(" "));
+    crumb.appendChild(CT.el("button", { type: "button", text: "重置缩放", onclick: function () { zoom = 1; panX = 0; applyViewBox(); } }));
+    curLabel = CT.el("span", { class: "muted", text: "缩放 ×1.0" });
+    crumb.appendChild(document.createTextNode(" "));
+    crumb.appendChild(curLabel);
     root.appendChild(crumb);
 
     const flat = flatten();
@@ -71,11 +132,17 @@
     let maxDepth = 0;
     for (const f of frames) if (f.depth > maxDepth) maxDepth = f.depth;
     const rowH = 22;
-    const W = 1000;
     const H = Math.max(120, (maxDepth + 1) * rowH);
+    curH = H;
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 " + W + " " + H);
     svg.setAttribute("height", String(H));
+    svg.style.cursor = "grab";
+    svg.addEventListener("wheel", onWheel, { passive: false });
+    svg.addEventListener("mousedown", onDown);
+    svg.addEventListener("mousemove", onMove);
+    svg.addEventListener("mouseup", onUp);
+    svg.addEventListener("mouseleave", onUp);
     for (const f of frames) {
       const x = f.x0 * W;
       const w = Math.max(1, (f.x1 - f.x0) * W);
@@ -92,6 +159,7 @@
       rect.addEventListener("mousemove", function (e) { CT.tooltip(tip, e.clientX, e.clientY); });
       rect.addEventListener("mouseleave", CT.hideTooltip);
       rect.addEventListener("click", function () {
+        if (suppressClick) { suppressClick = false; return; }
         CT.hideTooltip();
         if (f.node.children && f.node.children.length) { path = pathTo(f.node); rootNode = f.node; render(root); }
         else CT.openCallers(f.node.fn);
@@ -108,7 +176,9 @@
       }
     }
     root.appendChild(svg);
-    root.appendChild(CT.el("p", { class: "muted", text: "宽度=累计耗时；点击下钻，点击叶子查看调用者/被调用者。" }));
+    curSvg = svg;
+    applyViewBox();
+    root.appendChild(CT.el("p", { class: "muted", text: "宽度=累计耗时；滚轮缩放（以光标为中心）、拖动平移、可重置；点击下钻，点击叶子查看调用者/被调用者。" }));
   }
 
   CT.registerTab("flame", "火焰图", render);
