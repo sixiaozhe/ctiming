@@ -2,6 +2,7 @@
 #include "json.hpp"
 #include <algorithm>
 #include <cstdio>
+#include <map>
 #include <sstream>
 #include <vector>
 #include "glob.h"
@@ -15,6 +16,7 @@ AnalysisResult analyze(const Trace &trace, const Options &opt) {
   r.top = opt.top;
   uint32_t n = (uint32_t)r.agg.funcs.size();
   r.keep.assign(n, true);
+  if (!opt.has_include && !opt.has_exclude && opt.min_total_ns == 0) return r;
   for (uint32_t i = 0; i < n; i++) {
     const std::string name = trace.name_of(i);
     bool pass = ct_filter_match(opt.has_include ? opt.include.c_str() : nullptr,
@@ -33,7 +35,6 @@ static bool kept(const std::vector<bool> &keep, uint32_t fn) {
 static void write_funcs(JsonWriter &w, const AnalysisResult &r, const Trace &trace) {
   w.key("functions"); w.begin_array();
   for (const FuncStats &f : r.agg.funcs) {
-    if (!kept(r.keep, f.fn_id)) continue;
     w.begin_object();
     w.key("id"); w.number((uint64_t)f.fn_id);
     w.key("name"); w.str(trace.name_of(f.fn_id));
@@ -45,6 +46,7 @@ static void write_funcs(JsonWriter &w, const AnalysisResult &r, const Trace &tra
     w.key("self_ns"); w.number(f.self_ns);
     w.key("min_ns"); w.number(f.min_ns);
     w.key("max_ns"); w.number(f.max_ns);
+    w.key("kept"); w.boolean(kept(r.keep, f.fn_id));
     w.end_object();
   }
   w.end_array();
@@ -75,13 +77,14 @@ std::string to_json(const AnalysisResult &r, const Trace &trace) {
   w.key("threads"); w.number((uint64_t)trace.threads.size());
   w.key("total_events"); w.number((uint64_t)trace.total_events);
   w.key("dropped"); w.number((uint64_t)trace.dropped);
+  w.key("unbalanced_enter"); w.number((uint64_t)r.tree.unbalanced_enter);
+  w.key("orphan_exit"); w.number((uint64_t)r.tree.orphan_exit);
   w.end_object();
 
   write_funcs(w, r, trace);
 
   w.key("call_graph"); w.begin_array();
   for (const Edge &e : r.agg.edges) {
-    if (!kept(r.keep, e.caller) || !kept(r.keep, e.callee)) continue;
     w.begin_object();
     w.key("caller"); w.number((uint64_t)e.caller);
     w.key("callee"); w.number((uint64_t)e.callee);
@@ -96,13 +99,20 @@ std::string to_json(const AnalysisResult &r, const Trace &trace) {
   for (const AggNode &n : r.agg.aggregated) write_agg(w, n, trace);
   w.end_array();
 
+  std::map<uint32_t, std::vector<uint32_t>> roots_by_tid;
+  for (uint32_t root : r.tree.roots) {
+    const Instance &in = r.tree.instances[root];
+    roots_by_tid[in.tid].push_back(root);
+  }
+
   w.key("threads"); w.begin_array();
   for (const ThreadEvents &te : trace.threads) {
     w.begin_object();
     w.key("tid"); w.number((uint64_t)te.tid);
     w.key("roots"); w.begin_array();
-    for (const Instance &in : r.tree.instances)
-      if (in.parent == -1 && in.tid == te.tid) w.number((uint64_t)in.id);
+    auto it = roots_by_tid.find(te.tid);
+    if (it != roots_by_tid.end())
+      for (uint32_t root : it->second) w.number((uint64_t)root);
     w.end_array();
     w.end_object();
   }
@@ -154,14 +164,9 @@ std::string render_text(const AnalysisResult &r, const Trace &trace) {
      << "  dropped: " << trace.dropped << "\n";
   os << "functions (by total time):\n";
   os << "  calls        total       self     function\n";
-  size_t limit = rows.size();
-  for (size_t i = 0; i < limit; i++) {
-    const FuncStats *f = rows[i];
-    char total[32], self[32];
-    std::snprintf(total, sizeof(total), "%s", fmt_ns(f->total_ns).c_str());
-    std::snprintf(self, sizeof(self), "%s", fmt_ns(f->self_ns).c_str());
-    os << "  " << f->calls << "  " << total << "  " << self << "  " << trace.name_of(f->fn_id) << "\n";
-  }
+  for (const FuncStats *f : rows)
+    os << "  " << f->calls << "  " << fmt_ns(f->total_ns) << "  " << fmt_ns(f->self_ns)
+       << "  " << trace.name_of(f->fn_id) << "\n";
   return os.str();
 }
 

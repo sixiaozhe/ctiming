@@ -62,6 +62,7 @@ Analysis aggregate(const CallTree &tree, uint32_t n_symbols) {
     }
     if (in.parent >= 0) {
       const Instance &p = tree.instances[in.parent];
+      if (p.fn_id >= n_symbols || in.fn_id >= n_symbols) continue;
       Edge &e = emap[std::make_pair(p.fn_id, in.fn_id)];
       e.caller = p.fn_id;
       e.callee = in.fn_id;

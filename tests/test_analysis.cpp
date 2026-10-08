@@ -30,6 +30,8 @@ int main() {
   CHECK(js.find("\"leaf\"") != std::string::npos);
   CHECK(js.find("\"call_graph\"") != std::string::npos);
   CHECK(js.find("\"instances\"") != std::string::npos);
+  CHECK(js.find("\"unbalanced_enter\"") != std::string::npos);
+  CHECK(js.find("\"orphan_exit\"") != std::string::npos);
   std::string txt = render_text(r, tr);
   CHECK(txt.find("leaf") != std::string::npos);
   CHECK(txt.find("total") != std::string::npos);
@@ -39,6 +41,10 @@ int main() {
   std::string txt2 = render_text(r2, tr);
   CHECK(txt2.find("leaf") != std::string::npos);
   CHECK(txt2.find("main") == std::string::npos);
+  std::string js2 = to_json(r2, tr);
+  CHECK(js2.find("\"main\"") != std::string::npos);
+  CHECK(js2.find("\"leaf\"") != std::string::npos);
+  CHECK(js2.find("\"kept\":false") != std::string::npos);
 
   Options top; top.top = 1;
   std::string txt3 = render_text(analyze(tr, top), tr);
