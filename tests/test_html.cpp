@@ -26,6 +26,10 @@ int main() {
   std::string h3 = ct::to_html(comment);
   CHECK(h3.find("<!--") == std::string::npos);
   CHECK(h3.find("\\u003c!--") != std::string::npos);
+  CHECK(h.find("CT.registerTab(\"overview\"") != std::string::npos);
+  CHECK(h.find("top_ns") == std::string::npos);
+  CHECK(h.find("CT.openCallers") != std::string::npos);
+  CHECK(h.find("最重函数总耗时") != std::string::npos);
   if (fails) fprintf(stderr, "%d checks failed\n", fails);
   return fails ? 1 : 0;
 }
