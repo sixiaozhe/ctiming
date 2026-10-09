@@ -195,7 +195,6 @@ CT_NOINSTR static void ct_atexit(void) {
   }
   g_trace_retired = NULL;
 
-  ct_config_clear(&g_cfg);
   pthread_mutex_unlock(&g_retired_mu);
 }
 
@@ -495,20 +494,24 @@ CT_NOINSTR static void *ctl_thread_main(void *arg) {
   (void)arg;
   const char *path = g_cfg.ctl_path;
   if (mkfifo(path, 0600) != 0 && errno != EEXIST) { ctl_reply("mkfifo failed"); return NULL; }
-  int fd = open(path, O_RDWR);
+  int fd = open(path, O_RDWR | O_CLOEXEC);
   if (fd < 0) { ctl_reply("open ctl failed"); return NULL; }
   char line[512];
   size_t len = 0;
+  int skip_lf = 0;
   for (;;) {
     char c;
     ssize_t r = read(fd, &c, 1);
     if (r <= 0) { if (r < 0 && errno == EINTR) continue; break; }
-    if (c == '\n') {
+    if (c == '\r' || c == '\n') {
+      if (c == '\n' && skip_lf) { skip_lf = 0; continue; }
+      skip_lf = (c == '\r');
       line[len] = '\0';
       ctl_command(line);
       len = 0;
-    } else if (len + 1 < sizeof(line)) {
-      line[len++] = c;
+    } else {
+      skip_lf = 0;
+      if (len + 1 < sizeof(line)) line[len++] = c;
     }
   }
   close(fd);
