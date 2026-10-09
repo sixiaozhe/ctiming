@@ -3,14 +3,32 @@
 [![CI](https://github.com/sixiaozhe/ctiming/actions/workflows/ci.yml/badge.svg)](https://github.com/sixiaozhe/ctiming/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+> Function-level timing & call tracing for C/C++ — flame graphs and self-contained offline HTML reports from a single `-finstrument-functions` build.
+
 `ctiming` 是一个面向 C/C++ 程序的**函数级耗时统计与调用追踪工具**。它在编译期用 GCC/Clang 的 `-finstrument-functions` 给每个函数插入进入/退出钩子；运行时库 `libctiming` 把每次调用记录进每线程缓冲，进程退出时导出为二进制 `.ctrace`；再交给分析器 `ctiming-analyze` 重建调用树、聚合统计，输出文本摘要、全量 JSON，或生成自包含的离线 HTML 报告。
 
 - **编译期插桩**：精确的函数级事件（进入/退出 + 纳秒时间戳）。
 - **调用关系与单次追踪**：聚合火焰图、调用关系图、调用者/被调用者表，以及任选一次调用的瀑布时序。
 - **运行期人工控制**：通过控制 FIFO 随时开关记录、改过滤、指定追踪目标、导出快照。
 - **子树追踪**：只记录某个符号及其以下的调用栈。
-- **自包含 HTML**：单文件、离线、无 CDN、无外部依赖（VSCode Dark Modern 主题）。
+- **自包含 HTML**：单文件、离线、无 CDN、无外部依赖。
 - **零第三方依赖**：运行时仅 glibc；分析器仅 C++17 标准库。
+
+## 界面预览
+
+以下为 HTML 报告的实际渲染（由 `examples/example_complex` 生成；VSCode Dark Modern 主题；具体数值随运行变化）。
+
+**概览** — KPI 与热点函数表（可排序，点击行查看上下游）
+
+![概览](docs/images/overview.svg)
+
+**火焰图** — 宽度=累计耗时，滚轮缩放、点击下钻、过渡动画
+
+![火焰图](docs/images/flame.svg)
+
+**单次追踪** — 选择任意调用实例，查看其子树瀑布时间线
+
+![单次追踪](docs/images/trace.svg)
 
 ## 快速开始
 
