@@ -31,6 +31,8 @@ gcc -finstrument-functions -g app.c -L. -lctiming -o app
 | `CTIMING_BUF_KB` | 非负整数（KB） | `1024` | 每线程缓冲初始容量；换算为可容纳的事件数 |
 | `CTIMING_BUF_MAX_KB` | 非负整数（KB） | `65536` | 每线程缓冲扩容上限；达到上限后标记截断并停止该线程记录 |
 | `CTIMING_DROP_UNKNOWN` | `1` 丢弃；未设置或其它值保留 | 保留 | 无法符号化地址的过滤开关 |
+| `CTIMING_CTL` | 文件路径 | 未设置 | 若设置，运行时在初始化时创建该 FIFO（`mkfifo`，权限 `0600`）并开启控制线程，接受运行期命令（见“运行期控制与子树追踪”） |
+| `CTIMING_TRACE` | 逗号分隔 glob | 未设置 | 启动期设置子树追踪根：只记录命中该 glob 的函数的动态范围内（含自身）的调用 |
 
 glob 语法支持 `*`（任意长度，含空）与 `?`（单个字符），逐项匹配，项两侧空白会被去除，大小写敏感。逗号列表中的空项不匹配任何名字。
 
@@ -51,6 +53,8 @@ CTIMING_INCLUDE='main,mid*' CTIMING_EXCLUDE='mid_internal' ./app
 
 无法符号化的地址（`0x...`）默认保留，**即使设置了 `INCLUDE` 也不受影响**；设置 `CTIMING_DROP_UNKNOWN=1` 后一律丢弃。
 
+**子树追踪（设置追踪根后）**：设置追踪根 `F`（`CTIMING_TRACE` 或 `ctiming_set_trace_symbol`）后进入子树语义——只记录 `F` 动态范围内（含 `F` 自身）的调用，其余调用一律不记录。子树内**忽略 `INCLUDE`**（不再要求命中），但仍遵守标准库排除（`CTIMING_EXCLUDE_LIB` 开启时）与 `EXCLUDE`；`CTIMING_MAX_DEPTH` 依旧生效，`depth >= MAX_DEPTH` 的事件仍被丢弃。捕获状态**每线程独立**；`F` 递归调用只在其最外层进入时开启一次捕获，退出该最外层 `F` 后关闭。**未设置追踪根时，行为与上述过滤语义完全一致。**
+
 ## 公共 API
 
 头文件：`include/ctiming.h`。版本字符串当前为 `0.1.0`（`ctiming_version()`）。
@@ -59,12 +63,63 @@ CTIMING_INCLUDE='main,mid*' CTIMING_EXCLUDE='mid_internal' ./app
 |------|------|------|------|
 | `void ctiming_start(void)` | 无 | 无 | 开启记录（默认即开启），并触发运行时初始化 |
 | `void ctiming_stop(void)` | 无 | 无 | 停止记录，之后的事件不再写入缓冲 |
-| `int ctiming_dump(const char *path)` | `path`：输出路径，可为 `NULL` | `0` 成功，非 `0` 失败 | 立即把当前所有线程缓冲导出到文件；`NULL` 时用配置路径（`CTIMING_OUT` 或默认路径） |
+| `int ctiming_dump(const char *path)` | `path`：输出路径，可为 `NULL` | `0` 成功，非 `0` 失败 | 立即导出缓冲（已退役线程 + 调用线程自身，见“已知限制”）到文件；`NULL` 时用配置路径（`CTIMING_OUT` 或默认路径） |
 | `void ctiming_set_filter(const char *include, const char *exclude)` | 两个逗号分隔 glob，均可为 `NULL` | 无 | 运行期更新过滤规则，语义同环境变量 |
 | `void ctiming_set_max_depth(unsigned depth)` | `depth`：最大深度，`0` = 不限 | 无 | 运行期更新最大调用深度 |
+| `int ctiming_set_trace_symbol(const char *pattern)` | `pattern`：逗号分隔 glob，可为 `NULL` | 命中的函数地址数；`NULL`/空串清除时返回 `0`，分配失败返回 `-1` | 设置子树追踪根（见下节） |
 | `const char *ctiming_version(void)` | 无 | 指向版本字符串的常量指针 | 返回如 `"0.1.0"` |
 
 除 `ctiming_version` 外，调用公共 API 会触发一次惰性初始化（内部 `pthread_once`）；`ctiming_version` 仅返回常量字符串，不做初始化。`ctiming_stop` 会先完成初始化再把记录开关置零，因此**在任何插桩事件之前调用也不会被后续的惰性初始化重新开启**。同样地，若程序未提前调用，首次进入插桩钩子时也会自动初始化。进程退出时由 `atexit` 自动导出一次。
+
+## 运行期控制与子树追踪
+
+### 控制 FIFO
+
+设置 `CTIMING_CTL=<path>` 后，运行时在首次惰性初始化时创建该 FIFO 并启动后台线程逐字节读取命令。命令以整行为单位，**同时支持 `\n` 与 `\r\n` 行尾**；命令回复写入 **`stderr`**，统一前缀 `ctiming:`。FIFO 以 `O_RDWR` 打开，因此即使没有写端也不会使读线程阻塞。
+
+```bash
+CTIMING_CTL=/tmp/app.fifo CTIMING_OUT=/tmp/app.trace ./app &
+echo 'trace my::func' > /tmp/app.fifo   # 设置子树追踪根
+echo 'status'         > /tmp/app.fifo   # 查看当前状态
+echo 'dump /tmp/app.trace' > /tmp/app.fifo
+echo 'untrace'        > /tmp/app.fifo
+```
+
+命令表（命令名与参数以空格/制表符分隔）：
+
+| 命令 | 说明 | 回复 |
+|------|------|------|
+| `start` | 开启记录 | `recording on` |
+| `stop` | 停止记录 | `recording off` |
+| `toggle` | 在开/关之间切换 | `recording on` 或 `recording off` |
+| `dump [PATH]` | 立即导出缓冲，省略 `PATH` 时用配置路径 | `dumped` 或 `dump failed` |
+| `trace [SPEC]` | 按逗号分隔 glob `SPEC` 设置子树追踪根；`trace off` 或省略 `SPEC` 清除 | `trace 'SPEC' -> N address(es)` 或 `trace cleared` |
+| `untrace` | 清除追踪根 | `trace cleared` |
+| `include [GLOB]` | 设置 `INCLUDE` 过滤（保留当前 `EXCLUDE`）；省略或空则清除 | `include set` |
+| `exclude [GLOB]` | 设置 `EXCLUDE` 过滤（保留当前 `INCLUDE`）；省略或空则清除 | `exclude set` |
+| `status` | 打印状态 | `enabled=<0/1> trace=<on/off> include=<...> exclude=<...>` |
+| 其它 | 未知命令 | `unknown command` |
+
+`trace`/`include`/`exclude` 取命令名之后的**整行剩余内容**并去掉前导空白，因此这些 glob 参数不要带前导空格。`include`/`exclude` 的运行期语义与环境变量一致。
+
+### 子树追踪 API
+
+```c
+int ctiming_set_trace_symbol(const char *pattern);
+```
+
+- `pattern` 为逗号分隔 glob；返回**命中的函数地址数**。
+- `NULL` 或空串清除追踪（返回 `0`）。
+- 内存分配失败返回 `-1`，此时保持原追踪设置不变。
+- 追踪目标在**设置时刻**依据已加载的符号表解析为地址集合；计数为 `0` 时等价于未设置追踪根。
+
+设置后行为见上文“过滤语义”中的子树追踪说明。递归、多线程与 `MAX_DEPTH` 的交互同样适用。
+
+### 已知限制
+
+- `dump` 只导出**已退役线程**的缓冲与**调用 `dump` 的线程自身**的缓冲；仍在运行且未退出的其它线程缓冲不会被导出。
+- 追踪目标地址在设置时刻解析，之后通过 `dlopen` 新加载模块中的函数不在范围内。
+- 控制 FIFO 文件**不会自动删除**，需要自行清理。
 
 ## `.ctrace` 文件格式
 

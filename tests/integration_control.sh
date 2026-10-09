@@ -25,3 +25,13 @@ assert any("leaf" in n for n in names), names
 assert not any("unrelated" in n for n in names), "unrelated leaked: %r" % names
 PY
 grep -q "trace 'hot'" "$WORK/err.log"
+
+# CRLF 行尾：重新起一个进程，确认 \r\n 命令也被正确解析
+FIFO2="$WORK/ctl2"
+CTIMING_CTL="$FIFO2" CTIMING_OUT="$WORK/out2.ctrace" "$EXE" >/dev/null 2>"$WORK/err2.log" &
+PID2=$!
+for _ in $(seq 1 100); do [ -p "$FIFO2" ] && break; sleep 0.02; done
+test -p "$FIFO2"
+printf 'trace hot\r\n' > "$FIFO2"
+wait "$PID2" || true
+grep -q "trace 'hot' -> 1 address(es)" "$WORK/err2.log"
