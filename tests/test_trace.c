@@ -173,7 +173,12 @@ int main(void) {
     CHECK_EQ_LONG(ct_trace_write(p3, bufs3, 1, md3, 1, sy3, 1, &m3), 0);
 
     ct_trace_reader r3;
-    CHECK(ct_trace_open(p3, &r3) < 0);
+    CHECK_EQ_LONG(ct_trace_open(p3, &r3), 0);
+    CHECK_EQ_LONG(r3.n_symbols, 1);
+    CHECK(r3.symbols[0].module == 0xFFFFFFFFu);
+    CHECK_EQ_LONG((long)r3.threads[0].n_events, 1);
+    CHECK_EQ_LONG(r3.threads[0].events[0].fn_id, 0);
+    ct_trace_close(&r3);
 
     ct_buffer_free(b3);
     unlink(p3);

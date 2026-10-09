@@ -59,14 +59,11 @@ CT_NOINSTR CTIMING_HIDDEN int ct_trace_write(const char *path,
   if (nmods && mods == NULL) return -1;
   if (nsyms && syms == NULL) return -1;
 
-  FILE *f = fopen(path, "wb");
-  if (f == NULL) return -1;
-
   ct_addr_id *index = NULL;
   size_t nindex = 0;
   if (nsyms) {
     index = (ct_addr_id *)malloc(nsyms * sizeof(ct_addr_id));
-    if (index == NULL) { fclose(f); return -1; }
+    if (index == NULL) return -1;
     for (size_t i = 0; i < nsyms; i++) {
       if (syms[i].module == CT_UNKNOWN_MODULE || syms[i].module >= nmods) continue;
       index[nindex].addr = mods[syms[i].module].base + syms[i].offset;
@@ -76,8 +73,44 @@ CT_NOINSTR CTIMING_HIDDEN int ct_trace_write(const char *path,
     qsort(index, nindex, sizeof(index[0]), cmp_addr_id);
   }
 
+  uint8_t *used = NULL;
+  uint32_t *newid = NULL;
   ct_trace_symbol *extra = NULL;
   size_t nextra = 0, capextra = 0;
+  uint32_t m = 0;
+
+  if (nsyms) {
+    used = (uint8_t *)calloc(nsyms, 1);
+    newid = (uint32_t *)malloc(nsyms * sizeof(uint32_t));
+    if (used == NULL || newid == NULL) { free(index); free(used); free(newid); return -1; }
+  }
+
+  for (size_t bi = 0; bi < nbufs; bi++) {
+    const ct_buffer *b = bufs[bi];
+    for (size_t i = 0; b != NULL && i < b->count; i++) {
+      uint64_t fn = (uint64_t)b->data[i].fn;
+      long id = lookup_addr(index, nindex, fn);
+      if (id >= 0) { used[id] = 1; continue; }
+      if (lookup_extra(extra, nextra, fn) >= 0) continue;
+      if (nextra == capextra) {
+        size_t nc = capextra ? capextra * 2 : 8;
+        ct_trace_symbol *ne = (ct_trace_symbol *)realloc(extra, nc * sizeof(*ne));
+        if (ne == NULL) { free(index); free(used); free(newid); free(extra); return -1; }
+        extra = ne;
+        capextra = nc;
+      }
+      memset(&extra[nextra], 0, sizeof(extra[nextra]));
+      extra[nextra].module = CT_UNKNOWN_MODULE;
+      extra[nextra].offset = fn;
+      nextra++;
+    }
+  }
+
+  for (size_t i = 0; i < nsyms; i++) newid[i] = used[i] ? m++ : 0xFFFFFFFFu;
+
+  FILE *f = fopen(path, "wb");
+  if (f == NULL) { free(index); free(used); free(newid); free(extra); return -1; }
+
   uint32_t total = 0, dropped = 0;
   int failed = 0;
 
@@ -93,8 +126,9 @@ CT_NOINSTR CTIMING_HIDDEN int ct_trace_write(const char *path,
   put_u32(f, (uint32_t)nmods);
   for (size_t i = 0; i < nmods; i++) { put_u64(f, mods[i].base); put_str(f, mods[i].path); }
 
-  put_u32(f, (uint32_t)nsyms);
+  put_u32(f, m);
   for (size_t i = 0; i < nsyms; i++) {
+    if (!used[i]) continue;
     put_u32(f, syms[i].module); put_u64(f, syms[i].offset); put_str(f, syms[i].name);
   }
 
@@ -106,27 +140,16 @@ CT_NOINSTR CTIMING_HIDDEN int ct_trace_write(const char *path,
     uint64_t prev_ts = 0;
     for (size_t i = 0; b != NULL && i < b->count; i++) {
       const ct_event *e = &b->data[i];
-      long id = lookup_addr(index, nindex, (uint64_t)e->fn);
-      if (id < 0) {
-        long ei = lookup_extra(extra, nextra, (uint64_t)e->fn);
-        if (ei >= 0) {
-          id = (long)(nsyms + (size_t)ei);
-        } else {
-          id = (long)(nsyms + nextra);
-          if (nextra == capextra) {
-            size_t nc = capextra ? capextra * 2 : 8;
-            ct_trace_symbol *ne = (ct_trace_symbol *)realloc(extra, nc * sizeof(*ne));
-            if (ne == NULL) { failed = 1; break; }
-            extra = ne;
-            capextra = nc;
-          }
-          memset(&extra[nextra], 0, sizeof(extra[nextra]));
-          extra[nextra].module = CT_UNKNOWN_MODULE;
-          extra[nextra].offset = (uint64_t)e->fn;
-          nextra++;
-        }
+      uint64_t fn = (uint64_t)e->fn;
+      long id = lookup_addr(index, nindex, fn);
+      uint64_t out_id;
+      if (id >= 0) {
+        out_id = newid[id];
+      } else {
+        long ei = lookup_extra(extra, nextra, fn);
+        out_id = (uint64_t)m + (uint64_t)ei;
       }
-      put_varint(f, (uint64_t)id);
+      put_varint(f, out_id);
       put_varint(f, i == 0 ? e->ts : e->ts - prev_ts);
       prev_ts = e->ts;
       uint8_t fl = (uint8_t)(e->kind & 1);
@@ -149,6 +172,8 @@ CT_NOINSTR CTIMING_HIDDEN int ct_trace_write(const char *path,
   }
 
   free(index);
+  free(used);
+  free(newid);
   free(extra);
   if (failed || ferror(f)) { fclose(f); return -1; }
   if (fflush(f) != 0) { fclose(f); return -1; }
