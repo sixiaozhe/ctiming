@@ -11,7 +11,11 @@
   let curRoot = null;
   let drag = null;
   let suppressClick = false;
+  let lastGeom = null;
+  let animateNext = false;
+  let animGen = 0;
   const W = 1000;
+  const ANIM_MS = 320;
 
   function clampPan() {
     const vw = W / zoom;
@@ -108,21 +112,62 @@
     return { frames: frames, total: total };
   }
 
+  function runAnim(anims, labels, gen) {
+    const now = (typeof performance !== "undefined" && performance.now)
+      ? function () { return performance.now(); }
+      : function () { return Date.now(); };
+    const t0 = now();
+    function step() {
+      if (gen !== animGen) return;
+      let t = (now() - t0) / ANIM_MS;
+      if (t > 1) t = 1;
+      const e = 1 - Math.pow(1 - t, 3);
+      for (const a of anims) {
+        if (a.appear) {
+          a.rect.setAttribute("opacity", String(e));
+        } else {
+          a.rect.setAttribute("x", String(a.fx + (a.tx - a.fx) * e));
+          a.rect.setAttribute("y", String(a.fy + (a.ty - a.fy) * e));
+          a.rect.setAttribute("width", String(a.fw + (a.tw - a.fw) * e));
+        }
+      }
+      if (t < 1) {
+        requestAnimationFrame(step);
+      } else {
+        for (const a of anims) {
+          if (a.appear) {
+            a.rect.setAttribute("opacity", "1");
+          } else {
+            a.rect.setAttribute("x", String(a.tx));
+            a.rect.setAttribute("y", String(a.ty));
+            a.rect.setAttribute("width", String(a.tw));
+          }
+        }
+        for (const l of labels) l.setAttribute("opacity", "1");
+      }
+    }
+    requestAnimationFrame(step);
+  }
+
   function render(root) {
+    const gen = ++animGen;
+    const canAnim = animateNext && lastGeom && typeof requestAnimationFrame !== "undefined";
+    const from = canAnim ? lastGeom : null;
+    animateNext = false;
     curRoot = root;
     CT.clear(root);
     const crumb = CT.el("p", { class: "crumb" });
-    crumb.appendChild(CT.el("a", { text: "全部", onclick: function () { rootNode = null; path = []; render(root); } }));
+    crumb.appendChild(CT.el("a", { text: "全部", onclick: function () { animateNext = true; rootNode = null; path = []; render(root); } }));
     for (let i = 0; i < path.length; i++) {
       if (path[i] === rootNode) continue;
       (function (k) {
         crumb.appendChild(document.createTextNode(" / "));
-        crumb.appendChild(CT.el("a", { text: CT.name(path[k].fn), onclick: function () { rootNode = path[k]; path = path.slice(0, k + 1); render(root); } }));
+        crumb.appendChild(CT.el("a", { text: CT.name(path[k].fn), onclick: function () { animateNext = true; rootNode = path[k]; path = path.slice(0, k + 1); render(root); } }));
       })(i);
     }
     if (rootNode) { crumb.appendChild(document.createTextNode(" / ")); crumb.appendChild(CT.el("span", { text: CT.name(rootNode.fn) })); }
     crumb.appendChild(document.createTextNode("   "));
-    crumb.appendChild(CT.el("button", { type: "button", text: reversed ? "自底向上 ✓" : "自底向上", onclick: function () { reversed = !reversed; render(root); } }));
+    crumb.appendChild(CT.el("button", { type: "button", text: reversed ? "自底向上 ✓" : "自底向上", onclick: function () { animateNext = true; reversed = !reversed; render(root); } }));
     crumb.appendChild(document.createTextNode(" "));
     crumb.appendChild(CT.el("button", { type: "button", text: "重置缩放", onclick: function () { zoom = 1; panX = 0; if (curRoot) render(curRoot); else applyViewBox(); } }));
     curLabel = CT.el("span", { class: "muted", text: "缩放 ×1.0" });
@@ -157,14 +202,14 @@
     const xScale = ew / (W / zoom);
     const labelScale = xScale > 0 ? 1 / xScale : 1;
     const pad = xScale > 0 ? 4 / xScale : 4;
+    const newGeom = new Map();
+    const anims = [];
+    const labels = [];
     for (const f of frames) {
       const x = f.x0 * W;
       const w = Math.max(1, (f.x1 - f.x0) * W);
       const y = (reversed ? maxDepth - f.depth : f.depth) * rowH;
       const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-      rect.setAttribute("x", String(x));
-      rect.setAttribute("y", String(y));
-      rect.setAttribute("width", String(w));
       rect.setAttribute("height", String(rowH - 2));
       rect.setAttribute("rx", "3");
       const frac = f.node.total_ns / total;
@@ -175,9 +220,23 @@
       rect.addEventListener("click", function () {
         if (suppressClick) { suppressClick = false; return; }
         CT.hideTooltip();
-        if (f.node.children && f.node.children.length) { path = pathTo(f.node); rootNode = f.node; render(root); }
+        if (f.node.children && f.node.children.length) { animateNext = true; path = pathTo(f.node); rootNode = f.node; render(root); }
         else CT.openCallers(f.node.fn);
       });
+      const prev = from ? from.get(f.node) : null;
+      if (prev) {
+        rect.setAttribute("x", String(prev.x));
+        rect.setAttribute("y", String(prev.y));
+        rect.setAttribute("width", String(prev.w));
+        rect.setAttribute("opacity", "1");
+        anims.push({ rect: rect, fx: prev.x, fy: prev.y, fw: prev.w, tx: x, ty: y, tw: w });
+      } else {
+        rect.setAttribute("x", String(x));
+        rect.setAttribute("y", String(y));
+        rect.setAttribute("width", String(w));
+        rect.setAttribute("opacity", from ? "0" : "1");
+        if (from) anims.push({ rect: rect, appear: true });
+      }
       svg.appendChild(rect);
       if (w * xScale > 60) {
         const clipId = "ctfclip" + clipN++;
@@ -192,6 +251,7 @@
         defs.appendChild(cp);
         const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
         g.setAttribute("clip-path", "url(#" + clipId + ")");
+        if (from) g.setAttribute("opacity", "0");
         const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
         label.setAttribute("transform", "translate(" + (x + pad) + " " + (y + 15) + ") scale(" + labelScale + " 1)");
         label.setAttribute("font-size", "11");
@@ -199,10 +259,15 @@
         label.textContent = CT.name(f.node.fn);
         g.appendChild(label);
         svg.appendChild(g);
+        labels.push(g);
       }
+      newGeom.set(f.node, { x: x, y: y, w: w });
     }
     applyViewBox();
+    lastGeom = newGeom;
     root.appendChild(CT.el("p", { class: "muted", text: "宽度=累计耗时；滚轮缩放（以光标为中心）、拖动平移、可重置；点击下钻，点击叶子查看调用者/被调用者。" }));
+    if (anims.length) runAnim(anims, labels, gen);
+    else for (const l of labels) l.setAttribute("opacity", "1");
   }
 
   if (window.addEventListener) {

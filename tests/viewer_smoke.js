@@ -217,7 +217,24 @@ try {
 
 dataEl.textContent = rawData;
 
-const sandbox = { console: console, document: document, window: {} };
+const rafQueue = [];
+let rafTime = 0;
+const sandbox = {
+  console: console,
+  document: document,
+  window: {},
+  performance: { now: function () { return rafTime; } },
+  requestAnimationFrame: function (cb) { rafQueue.push(cb); return rafQueue.length; },
+};
+function flushAnim() {
+  let guard = 0;
+  rafTime += 100;
+  while (rafQueue.length && guard++ < 200) {
+    const cbs = rafQueue.splice(0);
+    rafTime += 100;
+    for (const cb of cbs) cb(rafTime);
+  }
+}
 vm.createContext(sandbox);
 for (let i = 0; i < blocks.length; i++) {
   try {
@@ -309,6 +326,10 @@ if (rects.length >= 2) {
   }
 }
 if (!drilled) check(flameRects().length >= 1, "expected at least one flame frame");
+flushAnim();
+const revealed = collect("g").filter(function (n) { return n.getAttribute && n.getAttribute("clip-path"); });
+check(revealed.every(function (n) { return n.getAttribute("opacity") !== "0"; }),
+  "flame labels must be revealed after animation");
 
 const flameSvgs = collect("svg");
 check(flameSvgs.length >= 1, "flame svg missing");
