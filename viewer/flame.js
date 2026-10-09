@@ -148,6 +148,12 @@
     svg.addEventListener("mousemove", onMove);
     svg.addEventListener("mouseup", onUp);
     svg.addEventListener("mouseleave", onUp);
+    root.appendChild(svg);
+    curSvg = svg;
+    const ew = (svg.getBoundingClientRect && svg.getBoundingClientRect().width) || W;
+    const xScale = ew / (W / zoom);
+    const labelScale = xScale > 0 ? 1 / xScale : 1;
+    const pad = xScale > 0 ? 4 / xScale : 4;
     for (const f of frames) {
       const x = f.x0 * W;
       const w = Math.max(1, (f.x1 - f.x0) * W);
@@ -170,19 +176,23 @@
         else CT.openCallers(f.node.fn);
       });
       svg.appendChild(rect);
-      if (w * zoom > 60) {
+      if (w * xScale > 60) {
         const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        label.setAttribute("transform", "translate(" + (x + 4) + " " + (y + 15) + ") scale(" + (1 / zoom) + " 1)");
+        label.setAttribute("transform", "translate(" + (x + pad) + " " + (y + 15) + ") scale(" + labelScale + " 1)");
         label.setAttribute("font-size", "11");
         label.setAttribute("fill", "#0b101f");
         label.textContent = CT.name(f.node.fn);
         svg.appendChild(label);
       }
     }
-    root.appendChild(svg);
-    curSvg = svg;
     applyViewBox();
     root.appendChild(CT.el("p", { class: "muted", text: "宽度=累计耗时；滚轮缩放（以光标为中心）、拖动平移、可重置；点击下钻，点击叶子查看调用者/被调用者。" }));
+  }
+
+  if (window.addEventListener) {
+    window.addEventListener("resize", function () {
+      if (curRoot && curSvg && document.body && document.body.contains && document.body.contains(curSvg)) render(curRoot);
+    });
   }
 
   CT.registerTab("flame", "火焰图", render);
