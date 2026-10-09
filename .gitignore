@@ -1,4 +1,5 @@
 build/
+build*/
 .superpowers/
 *.ctrace
 *.ctrace.gz
