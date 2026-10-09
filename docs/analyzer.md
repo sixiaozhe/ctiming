@@ -1,6 +1,6 @@
 # ctiming 分析器 `ctiming-analyze`
 
-`ctiming-analyze` 读取运行时导出的 `.ctrace` 文件，在分析器内部配对 ENTER/EXIT、重建每线程调用树，再按函数聚合出耗时统计与调用图。它属于**计划 2**；自包含 HTML 查看器（**计划 3，已完成**）读取本工具生成的 `analysis.json`，使用说明见 [viewer.md](viewer.md)。
+`ctiming-analyze` 读取运行时导出的 `.ctrace` 文件，在分析器内部配对 ENTER/EXIT、重建每线程调用树，再按函数聚合出耗时统计与调用图。自包含 HTML 查看器读取本工具生成的 `analysis.json`，使用说明见 [viewer.md](viewer.md)。
 
 ## 用法
 
@@ -39,7 +39,7 @@ ctiming-analyze <trace.ctrace> [--json FILE] [-o FILE|--html FILE] [--include GL
 不带 `--json` 时输出按 `total_ns` 降序排列的函数表。示例：
 
 ```
-exe: /home/sixz/project/Timing/build/example_single
+exe: /path/to/example_single
 threads: 1  total_events: 18  dropped: 0
 functions (by total time):
   calls        total       self     function
@@ -153,7 +153,7 @@ functions (by total time):
 
 `recursive` 表示该调用边位于递归环上：`caller == callee` 的自环直接标记；否则先对调用图跑一次强连通分量（SCC）分析，当 `caller` 与 `callee` 落在同一个大小大于 1 的 SCC 中时标记为递归。该标记只描述边是否成环，不改变 `calls`/`total_ns` 的统计口径。
 
-## 与其他计划的关系
+## 与 HTML 查看器的关系
 
-- **计划 3（已完成）** 的自包含 HTML 查看器（概览、火焰图、调用关系图、单次追踪、调用者/被调用者）读取本工具 `--json` 生成的 `analysis.json`，不依赖文本摘要；使用说明见 [viewer.md](viewer.md)。
+- 自包含 HTML 查看器（概览、火焰图、调用关系图、单次追踪、调用者/被调用者）读取本工具 `--json` 生成的 `analysis.json`，不依赖文本摘要；使用说明见 [viewer.md](viewer.md)。
 - 需要稳定的机器可读输入时，请始终使用 `--json`；文本摘要仅用于终端快速查看，且会被过滤参数裁剪。
