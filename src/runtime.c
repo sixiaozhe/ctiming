@@ -397,19 +397,21 @@ CT_NOINSTR CTIMING_HIDDEN int ctiming_dump(const char *path) {
 
 CT_NOINSTR CTIMING_HIDDEN void ctiming_set_filter(const char *include, const char *exclude) {
   pthread_once(&g_once, init_once);
-  ct_filter_snapshot *s = make_snapshot(include, exclude);
+  char *ni = include ? strdup(include) : NULL;
+  char *ne = exclude ? strdup(exclude) : NULL;
+  ct_filter_snapshot *s = make_snapshot(ni, ne);
   ct_filter_snapshot *old = atomic_exchange(&g_filter, s);
   atomic_fetch_add(&g_filter_gen, 1);
+  pthread_mutex_lock(&g_retired_mu);
   if (old) {
-    pthread_mutex_lock(&g_retired_mu);
     old->next = g_filter_retired;
     g_filter_retired = old;
-    if (g_cfg.include) free(g_cfg.include);
-    if (g_cfg.exclude) free(g_cfg.exclude);
-    g_cfg.include = include ? strdup(include) : NULL;
-    g_cfg.exclude = exclude ? strdup(exclude) : NULL;
-    pthread_mutex_unlock(&g_retired_mu);
   }
+  if (g_cfg.include) free(g_cfg.include);
+  if (g_cfg.exclude) free(g_cfg.exclude);
+  g_cfg.include = ni;
+  g_cfg.exclude = ne;
+  pthread_mutex_unlock(&g_retired_mu);
 }
 
 CT_NOINSTR CTIMING_HIDDEN void ctiming_set_max_depth(unsigned depth) {

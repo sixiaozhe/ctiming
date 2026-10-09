@@ -2,7 +2,8 @@
 #include <unistd.h>
 
 static void leaf(int x) { volatile int s = 0; for (int i = 0; i < x; i++) s += i; (void)s; }
-static int hot(int n) { int s = 0; for (int i = 0; i < n; i++) leaf(1000); return s; }
+static int rec(int n) { return n <= 0 ? 0 : 1 + rec(n - 1); }
+static int hot(int n) { int s = 0; for (int i = 0; i < n; i++) leaf(1000); s += rec(3); return s; }
 static void unrelated(void) { volatile int s = 0; for (int i = 0; i < 1000000; i++) s += i; (void)s; }
 
 int main(int argc, char **argv) {
