@@ -47,6 +47,11 @@ int main(void) {
   CHECK_EQ_LONG(ct_lib_name_match("demo::fib(int)"), 0);
   CHECK_EQ_LONG(ct_lib_name_match("mystd::foo(int)"), 0);
   CHECK_EQ_LONG(ct_lib_name_match("double demo::reduce_sum<double>(std::vector<double, std::allocator<double> > const&)"), 0);
+  CHECK_EQ_LONG(ct_lib_name_match("void (*&&std::forward<void (*)(int, int)>(std::remove_reference<void (*)(int, int)>::type&))(int, int)"), 1);
+  CHECK_EQ_LONG(ct_lib_name_match("void (&std::forward<void (&)(int, int)>(std::remove_reference<void (&)(int, int)>::type&))(int, int)"), 1);
+  CHECK_EQ_LONG(ct_lib_name_match("std::vector<int> demo::make()"), 0);
+  CHECK_EQ_LONG(ct_lib_name_match("std::string demo::to_string(int)"), 0);
+  CHECK_EQ_LONG(ct_lib_name_match("void (*demo::make_fn())(int)"), 0);
   CHECK_EQ_LONG(ct_lib_name_match(NULL), 0);
 
   if (fails) fprintf(stderr, "%d checks failed\n", fails);

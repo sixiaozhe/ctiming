@@ -17,18 +17,56 @@ CT_NOINSTR static char *dup_env(const char *name) {
   return dup_str(getenv(name));
 }
 
+CT_NOINSTR static size_t ct_param_start(const char *name) {
+  int depth = 0;
+  size_t last = 0;
+  int found = 0;
+  for (size_t i = 0; name[i] != '\0'; i++) {
+    if (name[i] == '(') {
+      if (depth == 0) { last = i; found = 1; }
+      depth++;
+    } else if (name[i] == ')') {
+      if (depth > 0) depth--;
+    }
+  }
+  return found ? last : strlen(name);
+}
+
+CT_NOINSTR static size_t ct_strip_return(const char *name, size_t end) {
+  int angle = 0, paren = 0;
+  size_t last = 0;
+  int found = 0;
+  for (size_t i = 0; i < end; i++) {
+    char c = name[i];
+    if (c == '<') angle++;
+    else if (c == '>') { if (angle > 0) angle--; }
+    else if (c == '(') paren++;
+    else if (c == ')') { if (paren > 0) paren--; }
+    else if (c == ' ' && angle == 0 && paren == 0) { last = i + 1; found = 1; }
+  }
+  return found ? last : 0;
+}
+
 CT_NOINSTR CTIMING_HIDDEN int ct_lib_name_match(const char *name) {
   if (name == NULL) return 0;
-  const char *paren = strchr(name, '(');
-  size_t n = (paren != NULL) ? (size_t)(paren - name) : strlen(name);
-  static const char *toks[] = {
-    "std::", "__gnu_cxx::", "__gnu::", "gnu::", "__cxxabiv1::", "__cxx::",
-    "operator new", "operator delete"
+  static const char *ns[] = {
+    "std::", "__gnu_cxx::", "__gnu::", "gnu::", "__cxxabiv1::", "__cxx::"
   };
-  for (size_t t = 0; t < sizeof(toks) / sizeof(toks[0]); t++) {
-    const char *tok = toks[t];
+  static const char *ops[] = { "operator new", "operator delete" };
+  size_t end = ct_param_start(name);
+  size_t begin = ct_strip_return(name, end);
+  for (size_t t = 0; t < sizeof(ns) / sizeof(ns[0]); t++) {
+    const char *tok = ns[t];
     size_t tl = strlen(tok);
-    for (size_t i = 0; i + tl <= n; i++) {
+    for (size_t i = begin; i + tl <= end; i++) {
+      if (memcmp(name + i, tok, tl) != 0) continue;
+      if (i == begin || !(isalnum((unsigned char)name[i - 1]) || name[i - 1] == '_')) return 1;
+    }
+  }
+  for (size_t t = 0; t < sizeof(ops) / sizeof(ops[0]); t++) {
+    const char *tok = ops[t];
+    size_t tl = strlen(tok);
+    for (size_t i = 0; i + tl <= end; i++) {
       if (memcmp(name + i, tok, tl) != 0) continue;
       if (i == 0 || !(isalnum((unsigned char)name[i - 1]) || name[i - 1] == '_')) return 1;
     }
