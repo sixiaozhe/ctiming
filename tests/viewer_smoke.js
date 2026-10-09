@@ -312,9 +312,13 @@ if (flameSvgs.length) {
   const svg = flameSvgs[flameSvgs.length - 1];
   const before = svg.getAttribute("viewBox");
   svg._fire("wheel", { deltaY: -1, clientX: 0, preventDefault: function () {} });
-  const after = svg.getAttribute("viewBox");
+  const current = collect("svg");
+  const afterSvg = current[current.length - 1];
+  const after = afterSvg ? afterSvg.getAttribute("viewBox") : null;
   check(typeof before === "string" && typeof after === "string" && before !== after,
     "flame wheel zoom did not change viewBox (" + before + " -> " + after + ")");
+  check(afterSvg && afterSvg.getAttribute("preserveAspectRatio") === "none",
+    "flame svg must use preserveAspectRatio=none for time-axis zoom");
 }
 
 check(showTabById("trace"), "trace tab registered");

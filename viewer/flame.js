@@ -8,6 +8,7 @@
   let curSvg = null;
   let curH = 0;
   let curLabel = null;
+  let curRoot = null;
   let drag = null;
   let suppressClick = false;
   const W = 1000;
@@ -37,7 +38,8 @@
     const factor = e && e.deltaY < 0 ? 1.2 : 1 / 1.2;
     zoom = Math.max(1, Math.min(20, zoom * factor));
     panX = anchor - frac * (W / zoom);
-    applyViewBox();
+    if (curRoot) render(curRoot);
+    else applyViewBox();
   }
 
   function onDown(e) {
@@ -107,6 +109,7 @@
   }
 
   function render(root) {
+    curRoot = root;
     CT.clear(root);
     const crumb = CT.el("p", { class: "crumb" });
     crumb.appendChild(CT.el("a", { text: "全部", onclick: function () { rootNode = null; path = []; render(root); } }));
@@ -121,7 +124,7 @@
     crumb.appendChild(document.createTextNode("   "));
     crumb.appendChild(CT.el("button", { type: "button", text: reversed ? "自底向上 ✓" : "自底向上", onclick: function () { reversed = !reversed; render(root); } }));
     crumb.appendChild(document.createTextNode(" "));
-    crumb.appendChild(CT.el("button", { type: "button", text: "重置缩放", onclick: function () { zoom = 1; panX = 0; applyViewBox(); } }));
+    crumb.appendChild(CT.el("button", { type: "button", text: "重置缩放", onclick: function () { zoom = 1; panX = 0; if (curRoot) render(curRoot); else applyViewBox(); } }));
     curLabel = CT.el("span", { class: "muted", text: "缩放 ×1.0" });
     crumb.appendChild(document.createTextNode(" "));
     crumb.appendChild(curLabel);
@@ -137,6 +140,7 @@
     curH = H;
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.setAttribute("preserveAspectRatio", "none");
     svg.setAttribute("height", String(H));
     svg.style.cursor = "grab";
     svg.addEventListener("wheel", onWheel, { passive: false });
@@ -166,10 +170,9 @@
         else CT.openCallers(f.node.fn);
       });
       svg.appendChild(rect);
-      if (w > 60) {
+      if (w * zoom > 60) {
         const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        label.setAttribute("x", String(x + 4));
-        label.setAttribute("y", String(y + 15));
+        label.setAttribute("transform", "translate(" + (x + 4) + " " + (y + 15) + ") scale(" + (1 / zoom) + " 1)");
         label.setAttribute("font-size", "11");
         label.setAttribute("fill", "#0b101f");
         label.textContent = CT.name(f.node.fn);
