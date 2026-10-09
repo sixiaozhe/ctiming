@@ -31,6 +31,8 @@ input[type=search]:focus{outline:none;border-color:var(--accent)}
 input[type=search]::placeholder{color:var(--muted)}
 .pill{display:inline-block;padding:1px 7px;border-radius:10px;background:#252526;color:var(--muted);font-size:11px}
 .muted{color:var(--muted)}
+a{color:var(--link);text-decoration:none}
+a:hover{text-decoration:underline}
 .crumb{color:var(--muted);margin:0 0 10px}
 .crumb a{color:var(--link);cursor:pointer;text-decoration:none}
 .crumb a:hover{text-decoration:underline}

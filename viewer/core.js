@@ -30,7 +30,13 @@
   };
 
   CT.fmtCount = function (n) {
-    return n.toLocaleString("en-US");
+    const s = String(n);
+    let out = "";
+    for (let i = 0; i < s.length; i++) {
+      if (i > 0 && (s.length - i) % 3 === 0) out += "\u202f";
+      out += s[i];
+    }
+    return out;
   };
 
   CT.pct = function (a, b) {

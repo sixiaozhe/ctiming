@@ -28,9 +28,9 @@
       line.setAttribute("y1", String(a[1]));
       line.setAttribute("x2", String(b[0]));
       line.setAttribute("y2", String(b[1]));
-      line.setAttribute("stroke", e.recursive ? "var(--hot)" : "var(--line)");
+      line.setAttribute("stroke", e.recursive ? "var(--hot)" : "#8b949e");
       line.setAttribute("stroke-width", String(0.5 + 4 * (e.count / maxCount)));
-      line.setAttribute("opacity", "0.7");
+      line.setAttribute("opacity", "0.55");
       const tip = CT.name(e.caller) + " → " + CT.name(e.callee) + " · " + CT.fmtCount(e.count) + " 次 · " + CT.fmtNs(e.total_ns) + (e.recursive ? " · 递归" : "");
       line.addEventListener("mousemove", function (ev) { CT.tooltip(tip, ev.clientX, ev.clientY); });
       line.addEventListener("mouseleave", CT.hideTooltip);
