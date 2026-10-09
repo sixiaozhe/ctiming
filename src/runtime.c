@@ -11,6 +11,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <time.h>
 #include <unistd.h>
@@ -21,6 +24,12 @@ typedef struct ct_filter_snapshot {
   struct ct_filter_snapshot *next;
 } ct_filter_snapshot;
 
+typedef struct ct_trace_targets {
+  uintptr_t *addrs;
+  size_t n;
+  struct ct_trace_targets *next;
+} ct_trace_targets;
+
 #define CT_FCACHE_SIZE 256
 
 static pthread_once_t g_once = PTHREAD_ONCE_INIT;
@@ -28,6 +37,7 @@ static pthread_key_t g_key;
 static pthread_mutex_t g_retired_mu = PTHREAD_MUTEX_INITIALIZER;
 static ct_buffer *g_retired_head = NULL;
 static ct_filter_snapshot *g_filter_retired = NULL;
+static ct_trace_targets *g_trace_retired = NULL;
 
 static ct_config g_cfg;
 static ct_symbol_table g_syms;
@@ -39,11 +49,14 @@ static _Atomic int g_enabled = 1;
 static _Atomic unsigned g_max_depth = 0;
 static _Atomic(ct_filter_snapshot *) g_filter = NULL;
 static _Atomic unsigned g_filter_gen = 0;
+static _Atomic(ct_trace_targets *) g_trace = NULL;
 
 static __thread ct_buffer *tls_buf = NULL;
 static __thread int tls_in_hook = 0;
 static __thread int tls_truncated = 0;
 static __thread unsigned tls_depth = 0;
+static __thread int tls_capture = 0;
+static __thread unsigned tls_capture_depth = 0;
 static __thread uint32_t tls_tid = 0;
 static __thread int tls_tid_set = 0;
 static __thread struct {
@@ -51,6 +64,8 @@ static __thread struct {
   int decision;
   unsigned gen;
 } tls_fcache[CT_FCACHE_SIZE];
+
+CT_NOINSTR static ct_trace_targets *build_trace_targets(const char *pattern);
 
 CT_NOINSTR static uint64_t now_ns(void) {
   struct timespec ts;
@@ -168,6 +183,15 @@ CT_NOINSTR static void ct_atexit(void) {
     s = nx;
   }
   g_filter_retired = NULL;
+
+  ct_trace_targets *tt = g_trace_retired;
+  while (tt) {
+    ct_trace_targets *nx = tt->next;
+    free(tt->addrs);
+    free(tt);
+    tt = nx;
+  }
+  g_trace_retired = NULL;
   pthread_mutex_unlock(&g_retired_mu);
 
   ct_config_clear(&g_cfg);
@@ -192,6 +216,7 @@ CT_NOINSTR static void init_once(void) {
   atomic_store(&g_enabled, g_cfg.enabled);
   atomic_store(&g_max_depth, g_cfg.max_depth);
   atomic_store(&g_filter, make_snapshot(g_cfg.include, g_cfg.exclude));
+  atomic_store(&g_trace, build_trace_targets(g_cfg.trace_pattern));
 
   pthread_key_create(&g_key, retire_thread_buffer);
   atexit(ct_atexit);
@@ -216,6 +241,64 @@ CT_NOINSTR static ct_buffer *current_buffer(void) {
   return tls_buf;
 }
 
+CT_NOINSTR static int cmp_uptr(const void *a, const void *b) {
+  uintptr_t x = *(const uintptr_t *)a, y = *(const uintptr_t *)b;
+  return x < y ? -1 : (x > y ? 1 : 0);
+}
+
+CT_NOINSTR static ct_trace_targets *build_trace_targets(const char *pattern) {
+  ct_trace_targets *t = (ct_trace_targets *)calloc(1, sizeof(*t));
+  if (!t) return NULL;
+  if (pattern == NULL || pattern[0] == '\0') return t;
+  size_t cap = 16;
+  t->addrs = (uintptr_t *)malloc(cap * sizeof(uintptr_t));
+  if (!t->addrs) { free(t); return NULL; }
+  for (size_t i = 0; i < g_syms.n_symbols; i++) {
+    if (!ct_filter_match(pattern, NULL, g_syms.syms[i].name)) continue;
+    if (t->n == cap) {
+      size_t nc = cap * 2;
+      uintptr_t *na = (uintptr_t *)realloc(t->addrs, nc * sizeof(uintptr_t));
+      if (!na) break;
+      t->addrs = na;
+      cap = nc;
+    }
+    t->addrs[t->n++] = (uintptr_t)g_syms.syms[i].addr;
+  }
+  qsort(t->addrs, t->n, sizeof(uintptr_t), cmp_uptr);
+  return t;
+}
+
+CT_NOINSTR static ct_trace_targets *trace_snapshot(void) {
+  return atomic_load(&g_trace);
+}
+
+CT_NOINSTR static int trace_configured(void) {
+  ct_trace_targets *t = trace_snapshot();
+  return t && t->n > 0;
+}
+
+CT_NOINSTR static int trigger_match(uintptr_t fn) {
+  ct_trace_targets *t = trace_snapshot();
+  if (!t) return 0;
+  size_t lo = 0, hi = t->n;
+  while (lo < hi) {
+    size_t mid = lo + (hi - lo) / 2;
+    uintptr_t a = t->addrs[mid];
+    if (a == fn) return 1;
+    if (a < fn) lo = mid + 1;
+    else hi = mid;
+  }
+  return 0;
+}
+
+CT_NOINSTR static int pass_exclusion(uintptr_t fn) {
+  const char *name = ct_symbols_lookup(&g_syms, fn, NULL, NULL);
+  if (!name) return g_cfg.drop_unknown ? 0 : 1;
+  if (g_cfg.exclude_lib && ct_lib_name_match(name)) return 0;
+  ct_filter_snapshot *s = atomic_load(&g_filter);
+  return ct_filter_match(NULL, s ? s->exclude : NULL, name);
+}
+
 CT_NOINSTR static int pass_filter(uintptr_t fn) {
   unsigned gen = atomic_load(&g_filter_gen);
   ct_filter_snapshot *s = atomic_load(&g_filter);
@@ -238,7 +321,7 @@ CT_NOINSTR static int pass_filter(uintptr_t fn) {
   return decision;
 }
 
-CT_NOINSTR static void record(uintptr_t fn, uintptr_t cs, ct_event_kind kind, unsigned depth) {
+CT_NOINSTR static void record(uintptr_t fn, uintptr_t cs, ct_event_kind kind, unsigned depth, int forced) {
   if (tls_in_hook) return;
   tls_in_hook = 1;
 
@@ -249,7 +332,9 @@ CT_NOINSTR static void record(uintptr_t fn, uintptr_t cs, ct_event_kind kind, un
   }
 
   unsigned maxd = atomic_load(&g_max_depth);
-  if ((maxd == 0 || depth < maxd) && pass_filter(fn)) {
+  int ok = forced ? pass_exclusion(fn)
+                  : (!trace_configured() && pass_filter(fn));
+  if ((maxd == 0 || depth < maxd) && ok) {
     ct_buffer *b = current_buffer();
     if (b) {
       ct_event e;
@@ -265,14 +350,25 @@ CT_NOINSTR static void record(uintptr_t fn, uintptr_t cs, ct_event_kind kind, un
   tls_in_hook = 0;
 }
 
-CT_NOINSTR void __cyg_profile_func_enter(void *fn, void *cs) {
-  record((uintptr_t)fn, (uintptr_t)cs, CT_EV_ENTER, tls_depth);
-  tls_depth++;
+CT_NOINSTR void __cyg_profile_func_enter(void *fnp, void *cs) {
+  uintptr_t fn = (uintptr_t)fnp;
+  unsigned d = tls_depth;
+  int forced = 0;
+  if (trace_configured()) {
+    if (!tls_capture && trigger_match(fn)) { tls_capture = 1; tls_capture_depth = d; }
+    forced = tls_capture;
+  }
+  record(fn, (uintptr_t)cs, CT_EV_ENTER, d, forced);
+  tls_depth = d + 1;
 }
 
-CT_NOINSTR void __cyg_profile_func_exit(void *fn, void *cs) {
+CT_NOINSTR void __cyg_profile_func_exit(void *fnp, void *cs) {
+  uintptr_t fn = (uintptr_t)fnp;
   if (tls_depth) tls_depth--;
-  record((uintptr_t)fn, (uintptr_t)cs, CT_EV_EXIT, tls_depth);
+  unsigned d = tls_depth;
+  int forced = (trace_configured() && tls_capture);
+  record(fn, (uintptr_t)cs, CT_EV_EXIT, d, forced);
+  if (tls_capture && d == tls_capture_depth) tls_capture = 0;
 }
 
 CT_NOINSTR CTIMING_HIDDEN const char *ctiming_version(void) { return CT_VERSION_STRING; }
@@ -308,6 +404,10 @@ CT_NOINSTR CTIMING_HIDDEN void ctiming_set_filter(const char *include, const cha
     pthread_mutex_lock(&g_retired_mu);
     old->next = g_filter_retired;
     g_filter_retired = old;
+    if (g_cfg.include) free(g_cfg.include);
+    if (g_cfg.exclude) free(g_cfg.exclude);
+    g_cfg.include = include ? strdup(include) : NULL;
+    g_cfg.exclude = exclude ? strdup(exclude) : NULL;
     pthread_mutex_unlock(&g_retired_mu);
   }
 }
@@ -315,4 +415,18 @@ CT_NOINSTR CTIMING_HIDDEN void ctiming_set_filter(const char *include, const cha
 CT_NOINSTR CTIMING_HIDDEN void ctiming_set_max_depth(unsigned depth) {
   pthread_once(&g_once, init_once);
   atomic_store(&g_max_depth, depth);
+}
+
+CT_NOINSTR CTIMING_HIDDEN int ctiming_set_trace_symbol(const char *pattern) {
+  pthread_once(&g_once, init_once);
+  ct_trace_targets *t = build_trace_targets(pattern);
+  if (!t) return -1;
+  ct_trace_targets *old = atomic_exchange(&g_trace, t);
+  if (old) {
+    pthread_mutex_lock(&g_retired_mu);
+    old->next = g_trace_retired;
+    g_trace_retired = old;
+    pthread_mutex_unlock(&g_retired_mu);
+  }
+  return (int)t->n;
 }

@@ -8,6 +8,7 @@ int main(void) {
   unsetenv("CTIMING_ENABLE"); unsetenv("CTIMING_MAX_DEPTH"); unsetenv("CTIMING_OUT");
   unsetenv("CTIMING_INCLUDE"); unsetenv("CTIMING_EXCLUDE"); unsetenv("CTIMING_EXCLUDE_LIB");
   unsetenv("CTIMING_BUF_KB"); unsetenv("CTIMING_BUF_MAX_KB"); unsetenv("CTIMING_DROP_UNKNOWN");
+  unsetenv("CTIMING_CTL"); unsetenv("CTIMING_TRACE");
   ct_config c;
   ct_config_load(&c, "myprog");
   CHECK_EQ_LONG(c.enabled, 1);
@@ -17,6 +18,7 @@ int main(void) {
   CHECK_EQ_LONG(c.drop_unknown, 0);
   CHECK_EQ_LONG(c.exclude_lib, 1);
   CHECK(c.include == NULL && c.exclude == NULL);
+  CHECK(c.ctl_path == NULL && c.trace_pattern == NULL);
   CHECK(strcmp(c.out_path, "./myprog.ctrace") == 0);
 
   setenv("CTIMING_ENABLE", "off", 1);
@@ -27,6 +29,8 @@ int main(void) {
   setenv("CTIMING_EXCLUDE_LIB", "off", 1);
   setenv("CTIMING_INCLUDE", "foo*,bar*", 1);
   setenv("CTIMING_EXCLUDE", "mine::*", 1);
+  setenv("CTIMING_CTL", "/tmp/x.fifo", 1);
+  setenv("CTIMING_TRACE", "demo::hot", 1);
   setenv("CTIMING_OUT", "/tmp/x.ctrace", 1);
   ct_config_load(&c, "myprog");
   CHECK_EQ_LONG(c.enabled, 0);
@@ -37,6 +41,8 @@ int main(void) {
   CHECK_EQ_LONG(c.exclude_lib, 0);
   CHECK(c.include && strcmp(c.include, "foo*,bar*") == 0);
   CHECK(c.exclude && strcmp(c.exclude, "mine::*") == 0);
+  CHECK(c.ctl_path && strcmp(c.ctl_path, "/tmp/x.fifo") == 0);
+  CHECK(c.trace_pattern && strcmp(c.trace_pattern, "demo::hot") == 0);
   CHECK(strcmp(c.out_path, "/tmp/x.ctrace") == 0);
   ct_config_clear(&c);
 

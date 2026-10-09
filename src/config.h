@@ -15,6 +15,8 @@ typedef struct {
   unsigned buf_max_kb;
   int drop_unknown;
   int exclude_lib;
+  char *ctl_path;
+  char *trace_pattern;
   char *include;
   char *exclude;
   char out_path[CT_PATH_MAX];

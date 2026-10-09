@@ -101,6 +101,8 @@ CT_NOINSTR CTIMING_HIDDEN void ct_config_load(ct_config *c, const char *progname
 
   c->include = dup_env("CTIMING_INCLUDE");
   c->exclude = dup_env("CTIMING_EXCLUDE");
+  c->ctl_path = dup_env("CTIMING_CTL");
+  c->trace_pattern = dup_env("CTIMING_TRACE");
 
   const char *out = getenv("CTIMING_OUT");
   if (out != NULL && out[0] != '\0') {
@@ -114,6 +116,10 @@ CT_NOINSTR CTIMING_HIDDEN void ct_config_load(ct_config *c, const char *progname
 CT_NOINSTR CTIMING_HIDDEN void ct_config_clear(ct_config *c) {
   free(c->include);
   free(c->exclude);
+  free(c->ctl_path);
+  free(c->trace_pattern);
   c->include = NULL;
   c->exclude = NULL;
+  c->ctl_path = NULL;
+  c->trace_pattern = NULL;
 }

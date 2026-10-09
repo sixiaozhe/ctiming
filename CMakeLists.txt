@@ -132,3 +132,12 @@ add_test(
   NAME integration_complex
   COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration_complex.sh
           $<TARGET_FILE:example_complex> $<TARGET_FILE:ctiming-analyze>)
+
+add_executable(example_control examples/example_control.c)
+target_compile_options(example_control PRIVATE -finstrument-functions -g -O0 -pthread)
+target_link_libraries(example_control PRIVATE ctiming)
+
+add_test(
+  NAME integration_trace_env
+  COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration_trace_env.sh
+          $<TARGET_FILE:example_control> $<TARGET_FILE:ctiming-analyze>)
