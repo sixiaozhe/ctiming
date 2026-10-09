@@ -33,3 +33,15 @@ assert any(n == "hot" or n.endswith("hot") for n in names), names
 assert not any("leaf" in n for n in names), "leaf not excluded: %r" % names
 assert not any("unrelated" in n for n in names), "unrelated leaked: %r" % names
 PY
+
+CTIMING_TRACE='hot' CTIMING_INCLUDE='zzz-no-match*' CTIMING_OUT="$WORK/out3.ctrace" "$EXE" once >/dev/null
+test -s "$WORK/out3.ctrace"
+"$ANALYZE" "$WORK/out3.ctrace" --json "$WORK/a3.json" >/dev/null
+python3 - "$WORK/a3.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+names = [f["name"] for f in d["functions"] if f["calls"] > 0]
+assert any(n == "hot" or n.endswith("hot") for n in names), names
+assert any("leaf" in n for n in names), names
+assert not any("unrelated" in n for n in names), "unrelated leaked: %r" % names
+PY

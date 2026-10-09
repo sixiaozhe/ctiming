@@ -33,5 +33,11 @@ PID2=$!
 for _ in $(seq 1 100); do [ -p "$FIFO2" ] && break; sleep 0.02; done
 test -p "$FIFO2"
 printf 'trace hot\r\n' > "$FIFO2"
+sleep 0.05
+printf 'trace off\r\n' > "$FIFO2"
+sleep 0.05
+printf 'include hot\n' > "$FIFO2"
 wait "$PID2" || true
 grep -q "trace 'hot' -> 1 address(es)" "$WORK/err2.log"
+grep -q "trace cleared" "$WORK/err2.log"
+grep -q "include set" "$WORK/err2.log"

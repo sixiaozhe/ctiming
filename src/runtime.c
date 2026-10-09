@@ -353,6 +353,7 @@ CT_NOINSTR static void record(uintptr_t fn, uintptr_t cs, ct_event_kind kind, un
 }
 
 CT_NOINSTR void __cyg_profile_func_enter(void *fnp, void *cs) {
+  if (!atomic_load(&g_started)) pthread_once(&g_once, init_once);
   uintptr_t fn = (uintptr_t)fnp;
   unsigned d = tls_depth;
   int forced = 0;
@@ -365,6 +366,7 @@ CT_NOINSTR void __cyg_profile_func_enter(void *fnp, void *cs) {
 }
 
 CT_NOINSTR void __cyg_profile_func_exit(void *fnp, void *cs) {
+  if (!atomic_load(&g_started)) pthread_once(&g_once, init_once);
   uintptr_t fn = (uintptr_t)fnp;
   if (tls_depth) tls_depth--;
   unsigned d = tls_depth;
@@ -439,6 +441,13 @@ CT_NOINSTR static void ctl_reply(const char *msg) {
   fprintf(stderr, "ctiming: %s\n", msg);
 }
 
+CT_NOINSTR static void snapshot_filters(char **out_include, char **out_exclude) {
+  pthread_mutex_lock(&g_retired_mu);
+  *out_include = g_cfg.include ? strdup(g_cfg.include) : NULL;
+  *out_exclude = g_cfg.exclude ? strdup(g_cfg.exclude) : NULL;
+  pthread_mutex_unlock(&g_retired_mu);
+}
+
 CT_NOINSTR static void ctl_command(char *line) {
   char *save = NULL;
   char *cmd = strtok_r(line, " \t\r\n", &save);
@@ -471,21 +480,33 @@ CT_NOINSTR static void ctl_command(char *line) {
   else if (strcmp(cmd, "include") == 0) {
     char *arg = strtok_r(NULL, "", &save);
     while (arg && (*arg == ' ' || *arg == '\t')) arg++;
-    ctiming_set_filter((arg && *arg) ? arg : NULL, g_cfg.exclude);
+    char *cur_inc = NULL, *cur_exc = NULL;
+    snapshot_filters(&cur_inc, &cur_exc);
+    ctiming_set_filter((arg && *arg) ? arg : NULL, cur_exc);
+    free(cur_inc);
+    free(cur_exc);
     ctl_reply("include set");
   }
   else if (strcmp(cmd, "exclude") == 0) {
     char *arg = strtok_r(NULL, "", &save);
     while (arg && (*arg == ' ' || *arg == '\t')) arg++;
-    ctiming_set_filter(g_cfg.include, (arg && *arg) ? arg : NULL);
+    char *cur_inc = NULL, *cur_exc = NULL;
+    snapshot_filters(&cur_inc, &cur_exc);
+    ctiming_set_filter(cur_inc, (arg && *arg) ? arg : NULL);
+    free(cur_inc);
+    free(cur_exc);
     ctl_reply("exclude set");
   }
   else if (strcmp(cmd, "status") == 0) {
+    char *cur_inc = NULL, *cur_exc = NULL;
+    snapshot_filters(&cur_inc, &cur_exc);
     char buf[256];
     snprintf(buf, sizeof(buf), "enabled=%d trace=%s include=%s exclude=%s",
              atomic_load(&g_enabled), trace_configured() ? "on" : "off",
-             g_cfg.include ? g_cfg.include : "-", g_cfg.exclude ? g_cfg.exclude : "-");
+             cur_inc ? cur_inc : "-", cur_exc ? cur_exc : "-");
     ctl_reply(buf);
+    free(cur_inc);
+    free(cur_exc);
   }
   else ctl_reply("unknown command");
 }
