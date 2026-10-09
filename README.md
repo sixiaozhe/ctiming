@@ -66,7 +66,7 @@ functions:
   1  main
 ```
 
-> 只有用 `-finstrument-functions` 编译的目标文件才会产生事件；运行时库本身无需该标志。输出路径默认是 `./<程序名>.ctrace`，可用 `CTIMING_OUT` 覆盖。
+> 只有用 `-finstrument-functions` 编译的目标文件才会产生事件；运行时库本身无需该标志。输出路径默认是 `./<程序名>.ctrace`，可用 `CTIMING_OUT` 覆盖。若程序由可执行程序 + 多个动态库组成，见 [docs/usage.md](docs/usage.md) 的“多模块 / 动态库工程”。
 
 ## 构建与测试
 

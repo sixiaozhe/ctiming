@@ -18,6 +18,70 @@ gcc -finstrument-functions -g app.c -L. -lctiming -o app
 
 运行时库自身所有函数都标注了 `no_instrument_function`，因此**给库加不加该标志都不影响**，且不会产生递归记录。支持 C 与 C++（`ctiming.h` 带 `extern "C"`）。
 
+## 多模块 / 动态库工程
+
+当被观测程序由一个可执行程序加多个共享库（`.so`）组成时，原则是：**想追踪哪些代码，就对哪些模块分别用 `-finstrument-functions` 重新编译**；而 `libctiming` 全程只保留**一份**。
+
+### 推荐：把运行时做成共享库
+
+```bash
+gcc -shared -fPIC -O2 -D_GNU_SOURCE -pthread -o libctiming.so \
+    src/glob.c src/buffer.c src/trace.c src/symbols.c src/config.c src/runtime.c \
+    -Iinclude -Isrc -ldl
+```
+
+`libctiming` **不要**加 `-finstrument-functions`。
+
+### 每个模块都加插桩标志
+
+```bash
+gcc -finstrument-functions -g -O0 -fPIC -c foo.c -o foo.o && gcc -shared -o libfoo.so foo.o
+gcc -finstrument-functions -g -O0 -fPIC -c bar.c -o bar.o && gcc -shared -o libbar.so bar.o
+gcc -finstrument-functions -g -O0 -c main.c -o main.o
+gcc -o app main.o -L. -lctiming -Wl,-rpath,'$ORIGIN'
+```
+
+- 只需要**可执行程序**链接 `libctiming.so`；各 `.so` 里对 `__cyg_profile_func_enter/exit` 的未定义引用会在加载时由它解析（全局符号作用域）。若担心，给 `.so` 也加 `-lctiming` 也安全（共享库去重，只有一份实例）。
+- 运行时找库：用 `-Wl,-rpath,'$ORIGIN'`，或设 `LD_LIBRARY_PATH`。
+- **不要**给每个 `.so` 各自静态链接一份 `libctiming.a`——会产生多份全局状态与多次导出。
+
+### 备选：静态运行时
+
+只把 `libctiming.a` 链进**可执行程序**一次，并导出符号供 `.so` 解析：
+
+```bash
+gcc -o app main.o -L. -lctiming -Wl,--export-dynamic
+```
+
+### CMake
+
+```cmake
+add_library(ctiming SHARED src/... .c)            # 共享运行时
+set_target_properties(ctiming PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(ctiming PUBLIC include PRIVATE src)
+
+add_library(foo SHARED foo.c)
+target_compile_options(foo PRIVATE -finstrument-functions -g -O0 -fPIC)
+target_link_libraries(foo PRIVATE ctiming)        # 可选但稳妥
+
+add_executable(app main.c)
+target_compile_options(app PRIVATE -finstrument-functions -g -O0)
+target_link_libraries(app PRIVATE ctiming foo)
+```
+
+### 符号化与验证
+
+- 运行时读取 `/proc/self/maps` 与每个已加载模块的 ELF 符号，因此**可执行与所有 `.so` 都会被符号化**；`ctiming-info` 的 `modules:` 会大于 1。
+- **不要 `strip`** 这些模块（保留 `.symtab`）；被 strip 的函数只显示 `0x...`。
+- 验证：`CTIMING_OUT=/tmp/app.ctrace ./app && ./build/ctiming-info /tmp/app.ctrace`，应能看到来自各 `.so` 的函数名。
+
+### 注意事项
+
+- 只对部分模块加标志时，未插桩库的内部调用不会成为事件（其耗时归入调用者的自身耗时）。
+- **预编译/第三方 `.so` 无法插桩**：编译期插桩必须重编译源码。
+- 建议 `-O0`/`-Og`；高优化下函数被内联后不再产生事件。
+- 插件式 `dlopen`：确保 `libctiming.so` 已由主程序加载，插件内部钩子即可解析；插件同样要用 `-finstrument-functions` 编译。
+
 ## 环境变量
 
 | 变量 | 取值 | 默认 | 含义 |
