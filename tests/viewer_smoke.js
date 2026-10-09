@@ -258,7 +258,11 @@ function showTabById(id) {
 }
 
 check(showTabById("flame"), "flame tab registered");
-function flameRects() { return collect("rect"); }
+function flameRects() {
+  return collect("rect").filter(function (r) {
+    return !r.parentNode || r.parentNode.tagName !== "CLIPPATH";
+  });
+}
 function flameCrumb() {
   const c = collectByClass("crumb");
   return c.length ? c[c.length - 1].textContent : "";
@@ -319,6 +323,14 @@ if (flameSvgs.length) {
     "flame wheel zoom did not change viewBox (" + before + " -> " + after + ")");
   check(afterSvg && afterSvg.getAttribute("preserveAspectRatio") === "none",
     "flame svg must use preserveAspectRatio=none for time-axis zoom");
+  const flameTexts = collectIn(afterSvg, "text");
+  if (flameTexts.length) {
+    const clipped = flameTexts.filter(function (t) {
+      return t.parentNode && t.parentNode.getAttribute && t.parentNode.getAttribute("clip-path");
+    });
+    check(clipped.length === flameTexts.length,
+      "flame labels must be clipped to their frame (" + clipped.length + "/" + flameTexts.length + ")");
+  }
 }
 
 check(showTabById("trace"), "trace tab registered");

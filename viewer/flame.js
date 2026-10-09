@@ -150,6 +150,9 @@
     svg.addEventListener("mouseleave", onUp);
     root.appendChild(svg);
     curSvg = svg;
+    const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+    svg.appendChild(defs);
+    let clipN = 0;
     const ew = (svg.getBoundingClientRect && svg.getBoundingClientRect().width) || W;
     const xScale = ew / (W / zoom);
     const labelScale = xScale > 0 ? 1 / xScale : 1;
@@ -177,12 +180,25 @@
       });
       svg.appendChild(rect);
       if (w * xScale > 60) {
+        const clipId = "ctfclip" + clipN++;
+        const cp = document.createElementNS("http://www.w3.org/2000/svg", "clipPath");
+        cp.setAttribute("id", clipId);
+        const cr = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        cr.setAttribute("x", String(x));
+        cr.setAttribute("y", String(y));
+        cr.setAttribute("width", String(w));
+        cr.setAttribute("height", String(rowH - 2));
+        cp.appendChild(cr);
+        defs.appendChild(cp);
+        const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        g.setAttribute("clip-path", "url(#" + clipId + ")");
         const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
         label.setAttribute("transform", "translate(" + (x + pad) + " " + (y + 15) + ") scale(" + labelScale + " 1)");
         label.setAttribute("font-size", "11");
         label.setAttribute("fill", "#0b101f");
         label.textContent = CT.name(f.node.fn);
-        svg.appendChild(label);
+        g.appendChild(label);
+        svg.appendChild(g);
       }
     }
     applyViewBox();
