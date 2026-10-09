@@ -1,6 +1,16 @@
 # ctiming
 
-`ctiming` 是一个面向 C/C++ 程序的**函数级耗时统计与调用追踪工具**。它在编译期通过 GCC/Clang 的 `-finstrument-functions` 为每个函数插入进入/退出钩子，运行时库 `libctiming` 把每次调用记录到每线程的无锁缓冲，进程退出时导出为二进制 `.ctrace` 文件；再用 `ctiming-info` 读回统计结果，或用分析器 `ctiming-analyze` 重建调用树、聚合统计并输出 JSON，或生成自包含的 HTML 报告。
+[![CI](https://github.com/sixiaozhe/ctiming/actions/workflows/ci.yml/badge.svg)](https://github.com/sixiaozhe/ctiming/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+`ctiming` 是一个面向 C/C++ 程序的**函数级耗时统计与调用追踪工具**。它在编译期用 GCC/Clang 的 `-finstrument-functions` 给每个函数插入进入/退出钩子；运行时库 `libctiming` 把每次调用记录进每线程缓冲，进程退出时导出为二进制 `.ctrace`；再交给分析器 `ctiming-analyze` 重建调用树、聚合统计，输出文本摘要、全量 JSON，或生成自包含的离线 HTML 报告。
+
+- **编译期插桩**：精确的函数级事件（进入/退出 + 纳秒时间戳）。
+- **调用关系与单次追踪**：聚合火焰图、调用关系图、调用者/被调用者表，以及任选一次调用的瀑布时序。
+- **运行期人工控制**：通过控制 FIFO 随时开关记录、改过滤、指定追踪目标、导出快照。
+- **子树追踪**：只记录某个符号及其以下的调用栈。
+- **自包含 HTML**：单文件、离线、无 CDN、无外部依赖（VSCode Dark Modern 主题）。
+- **零第三方依赖**：运行时仅 glibc；分析器仅 C++17 标准库。
 
 ## 快速开始
 
@@ -28,7 +38,7 @@ gcc -finstrument-functions -g -O0 examples/example_single.c \
 exe: /path/to/app
 pid: 12345
 modules: 3
-symbols: 2962
+symbols: 20
 threads: 1
 total_events: 18
 dropped: 0
@@ -40,24 +50,13 @@ functions:
 
 > 只有用 `-finstrument-functions` 编译的目标文件才会产生事件；运行时库本身无需该标志。输出路径默认是 `./<程序名>.ctrace`，可用 `CTIMING_OUT` 覆盖。
 
-运行期可通过控制 FIFO 追加命令（`CTIMING_CTL`），并在运行中设置子树追踪根（`trace`）：
-
-```bash
-CTIMING_CTL=/tmp/app.fifo CTIMING_OUT=/tmp/app.trace ./app &
-echo 'trace my::func' > /tmp/app.fifo
-# …运行一段时间…
-echo 'dump /tmp/app.trace' > /tmp/app.fifo
-```
-
-设置追踪根后只记录该函数动态范围内（含自身）的调用，支持 `start`/`stop`/`toggle`/`dump`/`trace`/`untrace`/`include`/`exclude`/`status` 等命令，回复打印到 `stderr`。详见 [docs/usage.md](docs/usage.md)。
-
 ## 构建与测试
 
 ```bash
 cmake -S . -B build && cmake --build build -j && ctest --test-dir build --output-on-failure
 ```
 
-依赖 CMake ≥ 3.16、C11/C++17 编译器与 Linux glibc。构建产物：静态库 `ctiming`、CLI `ctiming-info`、分析器 `ctiming-analyze`、示例 `example_single`，以及各 `test_*` 测试。
+依赖：CMake ≥ 3.16、C11/C++17 编译器（GCC/Clang）、Linux glibc。产物：静态库 `ctiming`、`ctiming-info`、分析器 `ctiming-analyze`、示例程序与全部测试。
 
 ## 环境变量
 
@@ -75,36 +74,61 @@ cmake -S . -B build && cmake --build build -j && ctest --test-dir build --output
 | `CTIMING_CTL` | 文件路径 | 未设 | 控制 FIFO 路径，设置后接受运行期命令 |
 | `CTIMING_TRACE` | 逗号分隔 glob | 未设 | 启动期设置子树追踪根，只记录命中函数的动态范围内（含自身）的调用 |
 
-过滤语义：默认先排除 C/C++ 标准库符号（`CTIMING_EXCLUDE_LIB=off` 可关闭）；随后 **`EXCLUDE` 优先**——命中 `EXCLUDE` 即丢弃；否则若 `INCLUDE` 非空则必须命中才保留，`INCLUDE` 为空则保留。判定基于函数自身的限定名，参数/返回值里含 `std::` 的用户函数仍会保留。无法符号化的地址（`0x...`）默认**保留**，设置 `CTIMING_DROP_UNKNOWN=1` 后一律丢弃。示例：
+过滤语义：默认先排除 C/C++ 标准库符号（`CTIMING_EXCLUDE_LIB=off` 可关闭）；随后 **`EXCLUDE` 优先**——命中 `EXCLUDE` 即丢弃；否则若 `INCLUDE` 非空则必须命中才保留，`INCLUDE` 为空则保留。判定基于函数自身的限定名，参数/返回值里含 `std::` 的用户函数仍会保留；无法符号化的地址（`0x...`）默认保留。详见 [docs/usage.md](docs/usage.md)。
+
+## 运行期控制与子树追踪
+
+给 `CTIMING_CTL` 指定一个 FIFO 路径后，可随时人工开关记录、改过滤、指定追踪目标并导出：
 
 ```bash
-CTIMING_EXCLUDE='*detail*,*internal*' ./app
+CTIMING_CTL=/tmp/app.fifo CTIMING_OUT=/tmp/app.ctrace ./app &
+echo 'trace myapp::hot'      > /tmp/app.fifo   # 只追踪该符号及其以下调用栈
+echo 'stop'                  > /tmp/app.fifo   # 暂停
+echo 'start'                 > /tmp/app.fifo   # 恢复
+echo 'include myapp::*'      > /tmp/app.fifo   # 改名称过滤
+echo 'dump /tmp/snap.ctrace' > /tmp/app.fifo   # 导出快照
+echo 'status'                > /tmp/app.fifo
 ```
 
-详见 [docs/usage.md](docs/usage.md)。
+命令：`start` / `stop` / `toggle` / `dump [PATH]` / `trace [SPEC]`（`trace off` 清除）/ `untrace` / `include [GLOB]` / `exclude [GLOB]` / `status`；回复打印到 stderr。设置追踪根后只记录该函数动态范围内（含自身）的调用。详见 [docs/usage.md](docs/usage.md)。公共 API 见 [include/ctiming.h](include/ctiming.h)。
 
-## 分析器（计划 2）
-
-`ctiming-analyze` 读取 `.ctrace`，配对 ENTER/EXIT、重建调用树并聚合出函数耗时与调用图。
+## 分析器
 
 ```bash
-./build/example_single                       # 生成 example_single.ctrace
-./build/ctiming-analyze example_single.ctrace          # 文本摘要
-./build/ctiming-analyze example_single.ctrace --json analysis.json   # 全量 JSON
+./build/example_single                                  # 生成 example_single.ctrace
+./build/ctiming-analyze example_single.ctrace           # 文本摘要
+./build/ctiming-analyze example_single.ctrace --json analysis.json
 ```
 
-文本摘要支持 `--include GLOB`、`--exclude GLOB`、`--min-total NS`、`--top N` 四个过滤参数：它们决定文本摘要显示哪些函数，并写入 JSON 每个函数的 `kept` 布尔标记（`--top` 只影响文本行数，不改变 `kept`）；`--json` 仍始终写出全量自洽的 `analysis.json`，不会因过滤而删减数据。退出码：`0` 成功，`1` 读取/写文件失败，`2` 用法错误。字段含义与过滤语义详见 [docs/analyzer.md](docs/analyzer.md)。
+`--include GLOB`、`--exclude GLOB`、`--min-total NS`、`--top N` 决定文本摘要显示哪些函数，并写入 JSON 每个函数的 `kept` 标记；`--json` 始终写出全量自洽数据。退出码：`0` 成功，`1` 读取/写文件失败，`2` 用法错误。字段与语义见 [docs/analyzer.md](docs/analyzer.md)。
 
-## 生成 HTML 报告（计划 3）
-
-`ctiming-analyze` 还能把分析结果生成为**自包含、离线可用**的单文件 HTML 报告：数据与查看器（CSS/JS）全部内联，不引用 CDN，无需网络。
+## HTML 报告
 
 ```bash
 ./build/example_single
 ./build/ctiming-analyze example_single.ctrace -o report.html
 ```
 
-`-o FILE` 与 `--html FILE` 等价；两者可与 `--json FILE` **同时使用**，一次运行同时写出 HTML 与 JSON 两份文件。给出 `-o`/`--html` 后不再打印文本摘要，成功时打印 `wrote FILE`。报告包含**概览、火焰图、调用关系图、单次追踪、调用者/被调用者**五个 Tab，读取 `analysis.json` 数据，详见 [docs/viewer.md](docs/viewer.md)。
+生成**自包含、离线可用**的单文件报告（`-o` 与 `--html` 等价，可与 `--json` 同时使用）。报告含概览、火焰图、调用关系图、单次追踪、调用者/被调用者五个视图，以及全局函数搜索与时间轴缩放。详见 [docs/viewer.md](docs/viewer.md)。
+
+## 项目结构
+
+```
+include/ctiming.h        公共 API
+src/                     运行时库（C）：钩子、缓冲、自符号化、配置、.ctrace 读写、控制 FIFO
+src/analyze/             分析器（C++17）：配对、聚合、调用图、JSON、HTML 生成
+tools/                   命令行工具：ctiming-info、ctiming-analyze
+viewer/                  HTML 查看器资源（CSS/JS，编译期内嵌）
+examples/                示例程序
+tests/                   单元测试与端到端集成测试
+cmake/                   资源内嵌脚本
+```
+
+## 文档
+
+- [docs/usage.md](docs/usage.md) — 运行时库、环境变量、公共 API、运行期控制、`.ctrace` 格式
+- [docs/analyzer.md](docs/analyzer.md) — `ctiming-analyze` 用法与 `analysis.json` 字段
+- [docs/viewer.md](docs/viewer.md) — HTML 查看器使用说明
 
 ## 已知局限
 
@@ -112,9 +136,12 @@ CTIMING_EXCLUDE='*detail*,*internal*' ./app
 - **建议使用 `-O0` 或 `-Og`**：高优化等级（`-O2`/`-O3`）下大量函数被内联，结果会明显失真。
 - **仅支持 64 位 ELF / Linux**：自符号化依赖 `/proc/self/maps` 与 ELF `.symtab`/`.dynsym`。
 - 头部/尾部极早构造期的调用可能被丢弃；未插桩目标不会有任何事件。
+- `dump` 只导出已退出线程缓冲 + 调用 `dump` 的线程自身缓冲；FIFO 文件不自动删除。
 
-## 路线图
+## 贡献
 
-- **计划 1（已完成）**：运行时库 `libctiming` + `ctiming.h`、插桩钩子、每线程缓冲、自符号化、`CTIMING_*` 过滤、`.ctrace` 导出、`ctiming-info`。
-- **计划 2（已完成）**：分析器 `ctiming-analyze`，重建调用树、聚合统计与调用图，支持文本摘要过滤与 `--json` 全量导出。
-- **计划 3（已完成）**：自包含 HTML 查看器（概览、火焰图、调用关系图、单次追踪、调用者/被调用者），由 `ctiming-analyze -o report.html` 生成，读取 `analysis.json`。
+欢迎提交 Issue 与 Pull Request，详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+## 许可证
+
+本项目采用 [MIT 许可证](LICENSE)。
