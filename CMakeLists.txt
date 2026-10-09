@@ -141,3 +141,8 @@ add_test(
   NAME integration_trace_env
   COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration_trace_env.sh
           $<TARGET_FILE:example_control> $<TARGET_FILE:ctiming-analyze>)
+
+add_test(
+  NAME integration_control
+  COMMAND bash ${CMAKE_SOURCE_DIR}/tests/integration_control.sh
+          $<TARGET_FILE:example_control> $<TARGET_FILE:ctiming-analyze>)

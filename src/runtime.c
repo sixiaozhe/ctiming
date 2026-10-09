@@ -50,6 +50,7 @@ static _Atomic unsigned g_max_depth = 0;
 static _Atomic(ct_filter_snapshot *) g_filter = NULL;
 static _Atomic unsigned g_filter_gen = 0;
 static _Atomic(ct_trace_targets *) g_trace = NULL;
+static _Atomic int g_ctl_started = 0;
 
 static __thread ct_buffer *tls_buf = NULL;
 static __thread int tls_in_hook = 0;
@@ -66,6 +67,7 @@ static __thread struct {
 } tls_fcache[CT_FCACHE_SIZE];
 
 CT_NOINSTR static ct_trace_targets *build_trace_targets(const char *pattern);
+CT_NOINSTR static void start_control(void);
 
 CT_NOINSTR static uint64_t now_ns(void) {
   struct timespec ts;
@@ -192,9 +194,9 @@ CT_NOINSTR static void ct_atexit(void) {
     tt = nx;
   }
   g_trace_retired = NULL;
-  pthread_mutex_unlock(&g_retired_mu);
 
   ct_config_clear(&g_cfg);
+  pthread_mutex_unlock(&g_retired_mu);
 }
 
 CT_NOINSTR static void init_once(void) {
@@ -220,6 +222,7 @@ CT_NOINSTR static void init_once(void) {
 
   pthread_key_create(&g_key, retire_thread_buffer);
   atexit(ct_atexit);
+  start_control();
   atomic_store(&g_started, 1);
 }
 
@@ -431,4 +434,90 @@ CT_NOINSTR CTIMING_HIDDEN int ctiming_set_trace_symbol(const char *pattern) {
     pthread_mutex_unlock(&g_retired_mu);
   }
   return (int)t->n;
+}
+
+CT_NOINSTR static void ctl_reply(const char *msg) {
+  fprintf(stderr, "ctiming: %s\n", msg);
+}
+
+CT_NOINSTR static void ctl_command(char *line) {
+  char *save = NULL;
+  char *cmd = strtok_r(line, " \t\r\n", &save);
+  if (!cmd || !*cmd) return;
+  if (strcmp(cmd, "start") == 0) { ctiming_start(); ctl_reply("recording on"); }
+  else if (strcmp(cmd, "stop") == 0) { ctiming_stop(); ctl_reply("recording off"); }
+  else if (strcmp(cmd, "toggle") == 0) {
+    if (atomic_load(&g_enabled)) { ctiming_stop(); ctl_reply("recording off"); }
+    else { ctiming_start(); ctl_reply("recording on"); }
+  }
+  else if (strcmp(cmd, "dump") == 0) {
+    char *path = strtok_r(NULL, " \t\r\n", &save);
+    int rc = ctiming_dump(path);
+    ctl_reply(rc == 0 ? "dumped" : "dump failed");
+  }
+  else if (strcmp(cmd, "trace") == 0) {
+    char *arg = strtok_r(NULL, "", &save);
+    while (arg && (*arg == ' ' || *arg == '\t')) arg++;
+    if (!arg || !*arg || strcmp(arg, "off") == 0) {
+      ctiming_set_trace_symbol(NULL);
+      ctl_reply("trace cleared");
+    } else {
+      int n = ctiming_set_trace_symbol(arg);
+      char buf[128];
+      snprintf(buf, sizeof(buf), "trace '%s' -> %d address(es)", arg, n);
+      ctl_reply(buf);
+    }
+  }
+  else if (strcmp(cmd, "untrace") == 0) { ctiming_set_trace_symbol(NULL); ctl_reply("trace cleared"); }
+  else if (strcmp(cmd, "include") == 0) {
+    char *arg = strtok_r(NULL, "", &save);
+    while (arg && (*arg == ' ' || *arg == '\t')) arg++;
+    ctiming_set_filter((arg && *arg) ? arg : NULL, g_cfg.exclude);
+    ctl_reply("include set");
+  }
+  else if (strcmp(cmd, "exclude") == 0) {
+    char *arg = strtok_r(NULL, "", &save);
+    while (arg && (*arg == ' ' || *arg == '\t')) arg++;
+    ctiming_set_filter(g_cfg.include, (arg && *arg) ? arg : NULL);
+    ctl_reply("exclude set");
+  }
+  else if (strcmp(cmd, "status") == 0) {
+    char buf[256];
+    snprintf(buf, sizeof(buf), "enabled=%d trace=%s include=%s exclude=%s",
+             atomic_load(&g_enabled), trace_configured() ? "on" : "off",
+             g_cfg.include ? g_cfg.include : "-", g_cfg.exclude ? g_cfg.exclude : "-");
+    ctl_reply(buf);
+  }
+  else ctl_reply("unknown command");
+}
+
+CT_NOINSTR static void *ctl_thread_main(void *arg) {
+  (void)arg;
+  const char *path = g_cfg.ctl_path;
+  if (mkfifo(path, 0600) != 0 && errno != EEXIST) { ctl_reply("mkfifo failed"); return NULL; }
+  int fd = open(path, O_RDWR);
+  if (fd < 0) { ctl_reply("open ctl failed"); return NULL; }
+  char line[512];
+  size_t len = 0;
+  for (;;) {
+    char c;
+    ssize_t r = read(fd, &c, 1);
+    if (r <= 0) { if (r < 0 && errno == EINTR) continue; break; }
+    if (c == '\n') {
+      line[len] = '\0';
+      ctl_command(line);
+      len = 0;
+    } else if (len + 1 < sizeof(line)) {
+      line[len++] = c;
+    }
+  }
+  close(fd);
+  return NULL;
+}
+
+CT_NOINSTR static void start_control(void) {
+  if (g_cfg.ctl_path == NULL || g_cfg.ctl_path[0] == '\0') return;
+  if (atomic_exchange(&g_ctl_started, 1)) return;
+  pthread_t th;
+  if (pthread_create(&th, NULL, ctl_thread_main, NULL) == 0) pthread_detach(th);
 }
